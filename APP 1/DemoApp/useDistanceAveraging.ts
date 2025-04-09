@@ -33,7 +33,7 @@ export function useDistanceAveraging(
 
     // Keep samples from the last 3 seconds
     rssiHistoryRef.current[device.id] = rssiHistoryRef.current[device.id].filter(
-      (s) => Date.now() - s.timestamp < 3000
+      (s) => Date.now() - s.timestamp < 5000
     );
 
     // Optional: Add throttling or batching logic here if needed
