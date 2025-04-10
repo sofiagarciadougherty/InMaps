@@ -95,12 +95,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   Future<void> requestPath(String boothName) async {
-    if (!mockBoothCoords.containsKey(boothName)) {
-      print("❌ Booth not found");
+    if (boothName.trim().isEmpty) {
+      print("❌ Booth name is empty.");
       return;
     }
 
-    final boothCoords = mockBoothCoords[boothName]!;
 
     if (userLocation.isEmpty || !userLocation.contains(",")) {
       print("❌ Invalid user location: $userLocation");
