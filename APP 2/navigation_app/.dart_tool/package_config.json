@@ -44,6 +44,12 @@
       "languageVersion": "3.3"
     },
     {
+      "name": "fixnum",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/fixnum-1.1.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
       "name": "flutter",
       "rootUri": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter/packages/flutter",
       "packageUri": "lib/",
@@ -56,10 +62,34 @@
       "languageVersion": "3.5"
     },
     {
+      "name": "flutter_reactive_ble",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_reactive_ble-5.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "flutter_test",
       "rootUri": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter/packages/flutter_test",
       "packageUri": "lib/",
       "languageVersion": "3.7"
+    },
+    {
+      "name": "functional_data",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/functional_data-1.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.19"
+    },
+    {
+      "name": "http",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/http-0.13.6",
+      "packageUri": "lib/",
+      "languageVersion": "2.19"
+    },
+    {
+      "name": "http_parser",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/http_parser-4.1.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
     },
     {
       "name": "leak_tracker",
@@ -110,6 +140,30 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "plugin_platform_interface",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/plugin_platform_interface-2.1.8",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "protobuf",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/protobuf-2.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
+      "name": "reactive_ble_mobile",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/reactive_ble_mobile-5.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
+      "name": "reactive_ble_platform_interface",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/reactive_ble_platform_interface-5.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "sky_engine",
       "rootUri": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter/bin/cache/pkg/sky_engine",
       "packageUri": "lib/",
@@ -152,6 +206,12 @@
       "languageVersion": "3.5"
     },
     {
+      "name": "typed_data",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/typed_data-1.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.5"
+    },
+    {
       "name": "vector_math",
       "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/vector_math-2.1.4",
       "packageUri": "lib/",
@@ -170,7 +230,7 @@
       "languageVersion": "3.7"
     }
   ],
-  "generated": "2025-04-09T22:55:27.776142Z",
+  "generated": "2025-04-09T23:54:01.779611Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter",
