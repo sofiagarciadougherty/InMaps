@@ -31,19 +31,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   void startScan() {
     scannedDevices.clear();
-    scanStream = flutterReactiveBle.scanForDevices(
-      withServices: [], // empty = scan everything
-      scanMode: ScanMode.lowLatency,
-    );
 
-    scanStream.listen((device) {
+    // Simulate a 2-second scan delay
+    Future.delayed(const Duration(seconds: 2), () {
       setState(() {
-        scannedDevices[device.id] = device.rssi;
+        scannedDevices["D1:AA:BE:01:01:01"] = -60;
+        scannedDevices["D2:BB:BE:02:02:02"] = -78;
+        scannedDevices["D3:CC:BE:03:03:03"] = -82;
       });
-    }, onError: (err) {
-      print("Scan error: $err");
     });
   }
+
 
   @override
   Widget build(BuildContext context) {
