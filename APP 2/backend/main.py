@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Dict
+from pathfinding import find_path
 import math
 
 app = FastAPI()
@@ -71,13 +72,8 @@ def locate_user(data: BLEScan):
     return {"x": x, "y": y}
 
 @app.post("/path")
-def get_path(req: PathRequest):
-    start = tuple(req.from_)
-    end = BOOTH_LOCATIONS.get(req.to)
-    if not end:
-        return {"error": "Booth not found"}
-
-    path = a_star(start, end)
+def get_path(request: PathRequest):
+    path = find_path(request.from_, request.to)
     return {"path": path}
 
 # ======= A* PATHFINDING =======
