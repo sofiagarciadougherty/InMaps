@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Dict
+from fastapi.responses import JSONResponse
 from heapq import heappop, heappush
 import pandas as pd
 import numpy as np
@@ -9,7 +10,6 @@ import ast
 
 app = FastAPI()
 
-# ====== Load booth data and grid from uploaded CSV ======
 CSV_PATH = "booth_coordinates.csv"
 
 def load_booth_data(csv_path):
@@ -29,7 +29,13 @@ def load_booth_data(csv_path):
             print(f"⚠️ Skipping row — JSON parsing failed: {e}")
             continue
 
-        booth_type = "blocker" if "blocker" in row["Name"].lower() else "booth"
+        if "blocker" in row["Name"].lower():
+            booth_type = "blocker"
+        elif "booth" in row["Name"].lower():
+            booth_type = "booth"
+        else:
+            booth_type = "other"  # default/fallback for stuff like bathroom
+
         name = row["Name"].strip()
 
         print(f"✅ Loaded booth: {name} ({booth_type})")
@@ -47,7 +53,7 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=20):
+def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
     df = pd.read_csv(csv_path)
     grid_width = canvas_width // grid_size
     grid_height = canvas_height // grid_size
@@ -62,34 +68,35 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
         except Exception:
             continue
 
-        booth_type = "blocker" if "blocker" in row["Name"].lower() else "booth"
+        # Mark all types as obstacles
+        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
+            start_px_x = int(coords["start"]["x"])
+            start_px_y = int(coords["start"]["y"])
+            end_px_x = int(coords["end"]["x"])
+            end_px_y = int(coords["end"]["y"])
 
-        start_x = int(coords["start"]["x"] // grid_size)
-        start_y = int(coords["start"]["y"] // grid_size)
-        end_x = int(coords["end"]["x"] // grid_size)
-        end_y = int(coords["end"]["y"] // grid_size)
+            for px_x in range(start_px_x, end_px_x + 1):
+                for px_y in range(start_px_y, end_px_y + 1):
+                    gx = px_x // grid_size
+                    gy = px_y // grid_size
 
-        start_x = max(0, min(start_x, grid_width - 1))
-        end_x = max(0, min(end_x, grid_width - 1))
-        start_y = max(0, min(start_y, grid_height - 1))
-        end_y = max(0, min(end_y, grid_height - 1))
+                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
+                        venue_grid[gy][gx] = 0
 
-        if booth_type in ["booth", "blocker"]:
-            venue_grid[start_y:end_y+1, start_x:end_x+1] = 0
 
     return venue_grid.tolist()
+
 
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
-# ====== Beacon positions ======
 BEACON_POSITIONS = {
     "D1:AA:BE:01:01:01": (2, 2),
     "D2:BB:BE:02:02:02": (6, 2),
     "D3:CC:BE:03:03:03": (4, 6)
 }
 
-# ====== Request Models ======
+# ====== Models ======
 class BLEReading(BaseModel):
     uuid: str
     rssi: int
@@ -101,22 +108,7 @@ class PathRequest(BaseModel):
     from_: List[int]
     to: str
 
-class Point(BaseModel):
-    x: float
-    y: float
-
-class Area(BaseModel):
-    start: Point
-    end: Point
-
-class Booth(BaseModel):
-    booth_id: int
-    name: str
-    type: str
-    area: Area
-    center: Point
-
-# ====== API Endpoints ======
+# ====== API ======
 @app.post("/locate")
 def locate_user(data: BLEScan):
     weighted_sum_x = 0
@@ -140,42 +132,78 @@ def locate_user(data: BLEScan):
 
 @app.post("/path")
 def get_path(request: PathRequest):
-    print("📥 RAW path request:", request)    print("📥 request.to repr:", repr(request.to))
-    print("🔎 Request to booth:", request.to)
-    booth = next((b for b in booth_data if b["name"].strip().lower() == request.to.strip().lower()), None)
+    print("✅ /path endpoint hit:", request)
+    booth_name = request.to.strip().lower()
+    booth = next((b for b in booth_data if b["name"].strip().lower() == booth_name), None)
+
     if not booth:
-        print("❌ Booth match failed — exact names:")
-        for b in booth_data:
-            print("-", repr(b["name"]))
+        print("❌ Booth not found:", booth_name)
+        return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
     cell_size = 50
+    goal_grid = (
+        int(booth["center"]["x"] // cell_size),
+        int(booth["center"]["y"] // cell_size)
+    )
 
-    goal = next((b for b in booth_data if b["name"].lower() == request.to.lower()), None)
-    if not goal:
-        print("❌ Booth not found")
-        return {"path": []}
+    def find_nearest_free_cell(goal, grid):
+        directions = [
+            (0, 1), (1, 0), (-1, 0), (0, -1),
+            (1, 1), (-1, -1), (1, -1), (-1, 1)
+        ]
+        for dx, dy in directions:
+            nx, ny = goal[0] + dx, goal[1] + dy
+            if 0 <= nx < len(grid[0]) and 0 <= ny < len(grid):
+                if grid[ny][nx] == 1:
+                    return (nx, ny)
+        return None
 
-    # 🔁 Convert pixel to grid coordinates
-    goal_grid = (int(goal["center"]["x"] // cell_size), int(goal["center"]["y"] // cell_size))
-    print(f"🧭 Converting pixels {goal['center']} → grid {goal_grid}")
+    print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
+    print("🧱 Sample grid slice at goal:")
+    print(np.array(VENUE_GRID)[goal_grid[1]-1:goal_grid[1]+2, goal_grid[0]-1:goal_grid[0]+2])
 
-    path = a_star(tuple(request.from_), goal_grid, venue_grid)
-    goal = booth["center"]
-    print("📍 Routing to:", goal)
-    return {"path": a_star(tuple(request.from_), (round(goal["x"]), round(goal["y"])))}
+    # 🔁 If goal is blocked, find a nearby free cell
+    if VENUE_GRID[goal_grid[1]][goal_grid[0]] == 0:
+        print("⚠️ Goal is blocked. Searching for nearby free cell...")
+        new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
+        if not new_goal:
+            print("❌ No valid nearby goal found.")
+            return {"path": []}
+        print(f"✅ Redirected goal to: {new_goal}")
+        goal_grid = new_goal
 
-@app.get("/booths", response_model=List[Booth])
+    path = a_star(tuple(request.from_), goal_grid)
+    print(f"🧭 Final path: {path}")
+    if path:
+        print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
+
+    return {"path": path}
+s
+
+@app.get("/booths")
 def get_all_booths():
     return booth_data
 
-@app.get("/booths/{booth_id}", response_model=Booth)
+@app.get("/booths/{booth_id}")
 def get_booth_by_id(booth_id: int):
-    for booth in booth_data:
-        if booth["booth_id"] == booth_id:
-            return booth
-    return {"error": "Booth not found"}
+    booth = next((b for b in booth_data if b["booth_id"] == booth_id), None)
+    return booth or {"error": "Booth not found"}
 
-# ====== A* PATHFINDING ======
+@app.get("/map-data")
+def get_map_data():
+    visual_elements = []
+
+    for booth in booth_data:
+        visual_elements.append({
+            "name": booth["name"],
+            "type": booth["type"],
+            "start": booth["area"]["start"],
+            "end": booth["area"]["end"]
+        })
+
+    return JSONResponse(content={"elements": visual_elements})
+
+# ====== A* Algorithm ======
 def a_star(start, goal):
     def heuristic(a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -185,25 +213,29 @@ def a_star(start, goal):
     visited = set()
 
     while open_set:
-        est_total, cost, current, path = heappop(open_set)
+            est_total_cost, path_cost, current, path = heappop(open_set)
 
-        if current == goal:
-            return path + [current]
+            if current == goal:
+                return path + [current]
 
-        if current in visited:
-            continue
-        visited.add(current)
+            if current in visited:
+                continue
+            visited.add(current)
 
-        for dx, dy in neighbors:
-            nx, ny = current[0] + dx, current[1] + dy
-            if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
-                if VENUE_GRID[ny][nx] == 1:
-                    heappush(open_set, (
-                        cost + 1 + heuristic((nx, ny), goal),
-                        cost + 1,
-                        (nx, ny),
-                        path + [current]
-                    ))
+            for dx, dy in neighbors:
+                nx, ny = current[0] + dx, current[1] + dy
+
+                # Check bounds
+                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
+                    # Check if the cell is walkable (1 = free space)
+                    if VENUE_GRID[ny][nx] == 1 and (nx, ny) not in visited:
+                        next_cost = path_cost + 1
+                        estimated_total = next_cost + heuristic((nx, ny), goal)
+                        heappush(open_set, (
+                            estimated_total,
+                            next_cost,
+                            (nx, ny),
+                            path + [current]
+                        ))
 
     return []
-
