@@ -81,9 +81,9 @@
     },
     {
       "name": "http",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/http-0.13.6",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/http-1.3.0",
       "packageUri": "lib/",
-      "languageVersion": "2.19"
+      "languageVersion": "3.4"
     },
     {
       "name": "http_parser",
@@ -224,13 +224,19 @@
       "languageVersion": "3.3"
     },
     {
+      "name": "web",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/web-1.1.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
       "name": "navigation_app",
       "rootUri": "../",
       "packageUri": "lib/",
       "languageVersion": "3.7"
     }
   ],
-  "generated": "2025-04-10T03:12:48.593987Z",
+  "generated": "2025-04-12T21:41:35.639493Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter",
