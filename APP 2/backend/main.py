@@ -178,7 +178,7 @@ def get_path(request: PathRequest):
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
 
     return {"path": path}
-s
+
 
 @app.get("/booths")
 def get_all_booths():
