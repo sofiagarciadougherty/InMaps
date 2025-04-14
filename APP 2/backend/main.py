@@ -48,7 +48,8 @@ def load_booth_data(csv_path):
                 "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
                 "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
             },
-            "center": {"x": center[0], "y": center[1]}
+            "center": {"x": center[0], "y": center[1]},
+            "description": row.get("description", "")
         })
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
@@ -192,13 +193,26 @@ def get_booth_by_id(booth_id: int):
 def get_map_data():
     visual_elements = []
 
-    for booth in booth_data:
-        visual_elements.append({
-            "name": booth["name"],
-            "type": booth["type"],
-            "start": booth["area"]["start"],
-            "end": booth["area"]["end"]
+    for _, row in df.iterrows():
+        # Parse the coordinate string
+        coords = eval(row["Coordinates (in pixels)"])
+
+        booth_data.append({
+            "booth_id": int(row["BOOTH ID"]),
+            "name": row["Name"],
+            "type": row["Name"].lower(),  # or another logic if "type" is separate
+            "area": {
+                "start": coords["start"],
+                "end": coords["end"],
+            },
+            "center": {
+                "x": float(row["Center"].split(",")[0][1:]),
+                "y": float(row["Center"].split(",")[1][:-1])
+            },
+            "description": str(row.get("Description", "") or "")
         })
+
+    print("🔥 Example booth entry:", booth_data[1])
 
     return JSONResponse(content={"elements": visual_elements})
 
