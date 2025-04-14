@@ -1,9 +1,6 @@
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:async';
-import 'dart:math';
 
 void main() {
   runApp(NavigationApp());
@@ -69,9 +66,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     final url = Uri.parse('http://10.0.2.2:8000/locate');
     final body = {
       "ble_data": scannedDevices.entries.map((e) => {
-        "uuid": e.key,
-        "rssi": e.value,
-      }).toList()
+            "uuid": e.key,
+            "rssi": e.value,
+          }).toList()
     };
 
     try {
@@ -182,6 +179,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => MapScreen(path: path, startLocation: start)),
+
         );
       } else {
         print("⚠️ Path request error: ${response.statusCode}");
@@ -190,6 +188,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       print("❌ Error requesting path: $e");
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -282,13 +281,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 }
 
-// MapScreen and MapPainter are defined in the continuation due to character limits.
-
-
+// ========================
+// 🧭 MAP SCREEN
+// ========================
 class MapScreen extends StatefulWidget {
-  final List<List<dynamic>> path;
-  final List<int> startLocation;
-  MapScreen({required this.path, required this.startLocation});
+    final List<List<dynamic>> path;
+    final List<int> startLocation;
+    MapScreen({required this.path, required this.startLocation});
   @override
   _MapScreenState createState() => _MapScreenState();
 }
@@ -297,57 +296,11 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> elements = [];
   double maxX = 0;
   double maxY = 0;
-  late List<int> currentLocation;
-  late Timer locationTimer;
 
   @override
   void initState() {
     super.initState();
-    currentLocation = List.from(widget.startLocation);
     fetchMapData();
-    startLiveUpdates();
-  }
-
-  @override
-  void dispose() {
-    locationTimer.cancel();
-    super.dispose();
-  }
-
-  void startLiveUpdates() {
-    locationTimer = Timer.periodic(Duration(seconds: 3), (_) async {
-      final newLoc = await getUpdatedLocation();
-      if (newLoc != null) {
-        setState(() {
-          currentLocation = newLoc;
-        });
-      }
-    });
-  }
-
-  Future<List<int>?> getUpdatedLocation() async {
-    final mockData = {
-      "ble_data": [
-        {"uuid": "D1:AA:BE:01:01:01", "rssi": -60 + Random().nextInt(10)},  // Add some randomness
-        {"uuid": "D2:BB:BE:02:02:02", "rssi": -70 + Random().nextInt(10)},
-        {"uuid": "D3:CC:BE:03:03:03", "rssi": -80 + Random().nextInt(10)},
-      ]
-    };
-    final url = Uri.parse('http://10.0.2.2:8000/locate');
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(mockData),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return [data['x'], data['y']];
-      }
-    } catch (e) {
-      print("🔁 Location update failed: \$e");
-    }
-    return null;
   }
 
   Future<void> fetchMapData() async {
@@ -358,24 +311,26 @@ class _MapScreenState extends State<MapScreen> {
         final json = jsonDecode(response.body);
         final fetchedElements = json["elements"];
 
+        // Compute bounds
         double maxXLocal = 0, maxYLocal = 0;
         for (var el in fetchedElements) {
           final start = el["start"];
           final end = el["end"];
+
           maxXLocal = [start["x"], end["x"], maxXLocal].reduce((a, b) => a > b ? a : b).toDouble();
           maxYLocal = [start["y"], end["y"], maxYLocal].reduce((a, b) => a > b ? a : b).toDouble();
         }
 
         setState(() {
           elements = fetchedElements;
-          maxX = maxXLocal + 100;
+          maxX = maxXLocal + 100; // 100 px padding
           maxY = maxYLocal + 100;
         });
       } else {
         print("❌ Failed to fetch map data");
       }
     } catch (e) {
-      print("❌ Map fetch failed: \$e");
+      print("❌ Map fetch failed: $e");
     }
   }
 
@@ -386,47 +341,19 @@ class _MapScreenState extends State<MapScreen> {
       body: elements.isEmpty
           ? Center(child: CircularProgressIndicator())
           : InteractiveViewer(
-        minScale: 0.2,
-        maxScale: 5.0,
-        boundaryMargin: EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          child: GestureDetector(
-            onTapDown: (details) {
-              _handleBoothTap(details.localPosition);
-            },
-            child: CustomPaint(
-              painter: MapPainter(elements: elements, path: widget.path, startLocation: currentLocation),
+              minScale: 0.2,
+              maxScale: 5.0,
+              boundaryMargin: EdgeInsets.all(1000),
+              child: Container(
+                width: maxX,
+                height: maxY,
+
+                child: CustomPaint(
+                  painter: MapPainter(elements, widget.path, widget.startLocation),
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
     );
-  }
-  void _handleBoothTap(Offset tapPosition) {
-    for (var el in elements) {
-      if (el["type"] != "booth") continue;
-
-      final start = el["start"];
-      final end = el["end"];
-      final rect = Rect.fromPoints(
-        Offset(start["x"].toDouble(), start["y"].toDouble()),
-        Offset(end["x"].toDouble(), end["y"].toDouble()),
-      );
-
-      if (rect.contains(tapPosition)) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text(el["name"]),
-            content: Text(el["description"] ?? "No information."),
-            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))],
-          ),
-        );
-        break;
-      }
-    }
   }
 }
 
@@ -434,10 +361,9 @@ class MapPainter extends CustomPainter {
   final List<dynamic> elements;
   final List<List<dynamic>> path;
   final List<int> startLocation;
-
-  MapPainter({required this.elements, required this.path, required this.startLocation});
-
   static const double cellSize = 50.0;
+
+  MapPainter(this.elements, this.path, this.startLocation);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -454,33 +380,60 @@ class MapPainter extends CustomPainter {
       final start = el["start"];
       final end = el["end"];
       final name = el["name"];
-      final type = el["type"].toString().toLowerCase();
+      final type = el["type"].toString().toLowerCase(); // normalize the type
 
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-      final center = Offset((start["x"] + end["x"]) / 2, (start["y"] + end["y"]) / 2);
+      final center = Offset(
+        (start["x"] + end["x"]) / 2,
+        (start["y"] + end["y"]) / 2,
+      );
 
-      Paint paint = type == "blocker" ? paintBlocker : (type == "booth" ? paintBooth : paintOther);
-      canvas.drawRect(Rect.fromPoints(startOffset, endOffset), paint);
+      // DEBUG
+      if (name.toLowerCase().contains("bathroom")) {
+        debugPrint("🛁 Drawing bathroom at $startOffset to $endOffset");
+      }
+
+      Paint paint;
+      if (type == "blocker") {
+        paint = paintBlocker;
+      } else if (type == "booth") {
+        paint = paintBooth;
+      } else {
+        paint = paintOther; // Fallback paint
+      }
+
+      canvas.drawRect(
+            Rect.fromPoints(startOffset, endOffset),
+            type == "blocker"
+                ? paintBlocker
+                : type == "booth"
+                    ? paintBooth
+                    : paintOther,
+          );
+
+       canvas.drawCircle(
+         Offset((startLocation[0]+0.5) * cellSize, (startLocation[1]+0.5) * cellSize),
+         6,
+         paintUser,
+       );
 
       final span = TextSpan(text: name, style: textStyle);
-      final tp = TextPainter(text: span, textAlign: TextAlign.center, textDirection: TextDirection.ltr);
+      final tp = TextPainter(
+        text: span,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      );
       tp.layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
 
-    // User location
-    canvas.drawCircle(
-      Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize),
-      6,
-      paintUser,
-    );
 
-    // Path
+    // Draw navigation path
     if (path.isNotEmpty) {
       for (int i = 0; i < path.length - 1; i++) {
         final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
-        final p2 = Offset((path[i + 1][0] + 0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
+        final p2 = Offset((path[i + 1][0]+0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
         canvas.drawLine(p1, p2, paintPath);
       }
     }
@@ -489,8 +442,3 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
-
-
-
-
-
