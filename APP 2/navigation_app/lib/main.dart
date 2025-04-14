@@ -46,7 +46,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://10.0.2.2:8000/booths');
+    final url = Uri.parse('http://128.61.115.73:8000/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
