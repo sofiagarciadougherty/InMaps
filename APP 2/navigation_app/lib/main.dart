@@ -46,7 +46,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://128.61.115.73:8000/booths');
+    final url = Uri.parse('http://143.215.53.49:8000/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -63,7 +63,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   Future<void> sendToBackend(Map<String, int> scannedDevices) async {
-    final url = Uri.parse('http://10.0.2.2:8000/locate');
+    final url = Uri.parse('http://143.215.53.49:8000/locate');
     final body = {
       "ble_data": scannedDevices.entries.map((e) => {
             "uuid": e.key,
@@ -113,7 +113,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     }
 
     final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
-    final url = Uri.parse('http://10.0.2.2:8000/path');
+    final url = Uri.parse('http://143.215.53.49:8000/path');
     final body = {
       "from_": [start[0], start[1]],
       "to": boothName,
@@ -159,7 +159,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     }
 
     final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
-    final url = Uri.parse('http://10.0.2.2:8000/path');
+    final url = Uri.parse('http://143.215.53.49:8000/path');
     final body = {
       "from_": [start[0], start[1]],
       "to": selectedBooth,
@@ -304,7 +304,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://10.0.2.2:8000/map-data");
+    final url = Uri.parse("http://143.215.53.49:8000/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
