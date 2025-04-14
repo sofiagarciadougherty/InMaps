@@ -1,70 +1,32 @@
-import heapq
+def a_star(start, goal, grid):
+    from heapq import heappop, heappush
 
-# Sample grid size and walls for testing
-GRID_WIDTH = 10
-GRID_HEIGHT = 10
-WALLS = {(2, 2), (3, 2), (4, 2)}  # blocked cells
+    def heuristic(a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-# Booth names mapped to their coordinates
-BOOTH_COORDS = {
-    "Tesla": (1, 7),
-    "Apple": (5, 2),
-    "Google": (2, 6),
-    "Meta": (4, 8),
-}
-
-
-def heuristic(a, b):
-    # Manhattan distance
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-
-def get_neighbors(node):
-    x, y = node
-    neighbors = [
-        (x + 1, y),
-        (x - 1, y),
-        (x, y + 1),
-        (x, y - 1)
-    ]
-    return [
-        n for n in neighbors
-        if 0 <= n[0] < GRID_WIDTH and 0 <= n[1] < GRID_HEIGHT and n not in WALLS
-    ]
-
-
-def a_star(start, goal):
-    open_set = []
-    heapq.heappush(open_set, (0, start))
-    came_from = {}
-    g_score = {start: 0}
+    neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
+    open_set = [(heuristic(start, goal), 0, start, [])]
+    visited = set()
 
     while open_set:
-        _, current = heapq.heappop(open_set)
+        est_total, cost, current, path = heappop(open_set)
 
         if current == goal:
-            path = []
-            while current in came_from:
-                path.append(current)
-                current = came_from[current]
-            path.append(start)
-            path.reverse()
-            return path
+            return path + [current]
 
-        for neighbor in get_neighbors(current):
-            tentative_g = g_score[current] + 1
-            if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g
-                f_score = tentative_g + heuristic(neighbor, goal)
-                heapq.heappush(open_set, (f_score, neighbor))
+        if current in visited:
+            continue
+        visited.add(current)
 
-    return []  # no path found
+        for dx, dy in neighbors:
+            nx, ny = current[0] + dx, current[1] + dy
+            if 0 <= nx < len(grid[0]) and 0 <= ny < len(grid):
+                if grid[ny][nx] == 1:
+                    heappush(open_set, (
+                        cost + 1 + heuristic((nx, ny), goal),
+                        cost + 1,
+                        (nx, ny),
+                        path + [current]
+                    ))
 
-
-def find_path(start, goal_name):
-    if goal_name not in BOOTH_COORDS:
-        return []
-
-    goal = BOOTH_COORDS[goal_name]
-    return a_star(tuple(start), goal)
+    return []
