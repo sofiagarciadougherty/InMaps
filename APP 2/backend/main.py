@@ -18,13 +18,13 @@ def load_booth_data(csv_path):
     print("📦 Loading booths from CSV...")
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates (in pixels)"]
+        coord_cell = row["Coordinates"]
         if not isinstance(coord_cell, str):
             print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
             continue
         try:
-            coords = json.loads(coord_cell)
-            center = ast.literal_eval(row["Center"])
+            coords = json.loads(coord_cell.replace('\"', '"'))
+            center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
             print(f"⚠️ Skipping row — JSON parsing failed: {e}")
             continue
@@ -41,7 +41,7 @@ def load_booth_data(csv_path):
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
         booths.append({
-            "booth_id": int(row["BOOTH ID"]),
+            "booth_id": int(row["Booth ID"]),
             "name": name,
             "type": booth_type,
             "area": {
@@ -60,11 +60,11 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
     venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates (in pixels)"]
+        coord_cell = row["Coordinates"]
         if not isinstance(coord_cell, str):
             continue
         try:
-            coords = json.loads(coord_cell)
+            coords = json.loads(coord_cell.replace('\"', '"'))
         except Exception:
             continue
 
