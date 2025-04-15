@@ -3,9 +3,72 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math';
 
-void main() {
-  runApp(NavigationApp());
+void main() => runApp(NavigationApp());
+
+class BoothTestApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: BoothFetchScreen(),
+    );
+  }
+}
+
+class BoothFetchScreen extends StatefulWidget {
+  @override
+  _BoothFetchScreenState createState() => _BoothFetchScreenState();
+}
+
+class _BoothFetchScreenState extends State<BoothFetchScreen> {
+  String result = "Press the button to fetch booths.";
+
+  Future<void> fetchBooths() async {
+    final url = Uri.parse('http://10.2.24.155:8000/booths');
+    try {
+      print("🔍 Attempting request...");
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final booths = jsonDecode(response.body);
+        print("✅ Response: $booths");
+        setState(() {
+          result = "Fetched ${booths.length} booths:\n" +
+              booths.map<String>((b) => "- ${b['name']}").join("\n");
+        });
+      } else {
+        print("⚠️ Server error: ${response.statusCode}");
+        setState(() {
+          result = "Server error: ${response.statusCode}";
+        });
+      }
+    } catch (e) {
+      print("❌ Exception: $e");
+      setState(() {
+        result = "Exception: $e";
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Booth Fetch Test")),
+      body: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          children: [
+            ElevatedButton(
+              onPressed: fetchBooths,
+              child: Text("Fetch Booths"),
+            ),
+            SizedBox(height: 20),
+            Expanded(child: SingleChildScrollView(child: Text(result))),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class NavigationApp extends StatelessWidget {
@@ -25,32 +88,23 @@ class BLEScannerPage extends StatefulWidget {
 }
 
 class _BLEScannerPageState extends State<BLEScannerPage> {
-  // Map to store scanned device info.
   Map<String, int> scannedDevices = {};
   String userLocation = "";
   String selectedBooth = "";
   List<String> boothNames = [];
 
-  // Dictionary mapping beacon Major values (as strings) to their [x, y] position.
   final Map<String, List<int>> beaconIdToPosition = {
-      "14j906Gy": [0, 0],
-      "14jr08Ef": [20, 0],
-      "14j606Gv": [0, 20],
-      // Add more based on what you find from the logs
-    };
+    "14j906Gy": [0, 0],
+    "14jr08Ef": [200, 0],
+    "14j606Gv": [0, 200],
+  };
 
-
-  // Your known iBeacon Proximity UUID (without header).
-  final String knownIBeaconUUID = "f7826da6-4fa2-4e98-8024-bc5b71e0893e";
-
-  // Initialize FlutterReactiveBle instance and scan subscription.
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
 
   @override
   void initState() {
     super.initState();
-    // Listen to Bluetooth status for debugging.
     flutterReactiveBle.statusStream.listen((status) {
       print("Bluetooth status: $status");
     });
@@ -63,86 +117,57 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     super.dispose();
   }
 
-  /// Formats 16 bytes into a standard UUID string (8-4-4-4-12).
-  String _formatAsUuid(List<int> bytes) {
-    final sb = StringBuffer();
-    for (int i = 0; i < bytes.length; i++) {
-      sb.write(bytes[i].toRadixString(16).padLeft(2, '0'));
-      if (i == 3 || i == 5 || i == 7 || i == 9) sb.write('-');
-    }
-    return sb.toString().toLowerCase();
-  }
+  double estimateDistance(int rssi, int txPower) => pow(10, (txPower - rssi) / 20).toDouble();
 
-  /// Parses the iBeacon advertisement manufacturer data.
-  /// Returns the Proximity UUID if the data is in proper iBeacon format.
-  String? parseIBeaconUUID(List<int> data) {
-    if (data.length < 25) {
-      print("Manufacturer data length is less than expected: ${data.length}");
-      return null;
-    }
-    // Check that the first 4 bytes match the iBeacon header: [0x4c, 0x00, 0x02, 0x15].
-    if (!(data[0] == 0x4c && data[1] == 0x00 && data[2] == 0x02 && data[3] == 0x15)) {
-      print("Data does not match iBeacon header: ${data.sublist(0, 4)}");
-      return null;
-    }
-    // Extract the 16-byte Proximity UUID.
-    final uuidBytes = data.sublist(4, 20);
-    final uuidStr = _formatAsUuid(uuidBytes);
-    print("Parsed Proximity UUID: $uuidStr");
-    return uuidStr;
-  }
+  void startScan() async {
+    await _scanSubscription?.cancel();
+    setState(() => scannedDevices.clear());
 
-  /// Extracts the Major value from iBeacon advertisement data.
-  int? parseMajor(List<int> data) {
-    if (data.length < 25) return null;
-    final major = (data[20] << 8) + data[21];
-    print("Parsed Major: $major");
-    return major;
-  }
+    _scanSubscription = flutterReactiveBle.scanForDevices(
+      withServices: [],
+      scanMode: ScanMode.lowLatency,
+    ).listen((device) {
+      if (device.name.toLowerCase() == "kontakt" &&
+          device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+        final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+        final asciiBytes = rawData.sublist(13);
+        final beaconId = String.fromCharCodes(asciiBytes);
 
-  // Start scanning for devices.
-    void startScan() async {
-      await _scanSubscription?.cancel();
-      setState(() {
-        scannedDevices.clear();
-      });
+        print("🔎 Beacon ID: $beaconId");
+        print("📶 RSSI: ${device.rssi}");
 
-      _scanSubscription = flutterReactiveBle.scanForDevices(
-        withServices: [], // Scan all
-        scanMode: ScanMode.lowLatency,
-      ).listen((device) {
-        // ✅ Filter only Kontakt beacons
-        if (device.name.toLowerCase() == "kontakt" &&
-            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
-
-          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
-          final asciiBytes = rawData.sublist(13);
-          final beaconId = String.fromCharCodes(asciiBytes);
-
-          print("🔎 Beacon ID: $beaconId");
-          print("📶 RSSI: ${device.rssi}");
-
-          // Match beaconId to a location
-          if (beaconIdToPosition.containsKey(beaconId)) {
-            final pos = beaconIdToPosition[beaconId]!;
-            print("📍 Mapped Position: $pos");
-
-            setState(() {
-              scannedDevices[beaconId] = device.rssi;
-            });
-          } else {
-            print("⚠️ Unknown beacon ID: $beaconId");
-          }
+        if (beaconIdToPosition.containsKey(beaconId)) {
+          setState(() => scannedDevices[beaconId] = device.rssi);
+        } else {
+          print("⚠️ Unknown beacon ID: $beaconId");
         }
-      }, onError: (error) {
-        print("❌ Scan error: $error");
-      });
+      }
+    }, onError: (error) => print("❌ Scan error: $error"));
+  }
+
+  void estimateUserLocation() {
+    final distances = <String, double>{};
+    scannedDevices.forEach((id, rssi) => distances[id] = estimateDistance(rssi, -59));
+    final position = trilaterate(distances, beaconIdToPosition);
+    if (position != null) {
+      print("📍 Estimated Position: (${position.x}, ${position.y})");
+      setState(() => userLocation = "${position.x.round()}, ${position.y.round()}");
+      if (selectedBooth.isNotEmpty) requestPath(selectedBooth);
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text("Your Location"),
+          content: Text("You are at: (${position.x.toStringAsFixed(1)}, ${position.y.toStringAsFixed(1)})"),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))],
+        ),
+      );
+    } else {
+      print("⚠️ Trilateration failed.");
     }
-
-
+  }
 
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://143.215.53.49:8000/booths');
+    final url = Uri.parse('http://10.2.24.155:8000/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -158,84 +183,26 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     }
   }
 
-  Future<void> sendToBackend(Map<String, int> scannedDevices) async {
-    final url = Uri.parse('http://143.215.53.49:8000/locate');
-    final body = {
-      "ble_data": scannedDevices.entries
-          .map((e) => {
-                "uuid": e.key, // Consider sending additional data (such as Major) if needed.
-                "rssi": e.value,
-              })
-          .toList()
-    };
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          userLocation = "${data['x']}, ${data['y']}";
-        });
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text("Your Location"),
-            content: Text("You are at: ($userLocation)"),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text("OK"))
-            ],
-          ),
-        );
-      } else {
-        print("⚠️ Server error: ${response.statusCode}");
-      }
-    } catch (e) {
-      print("❌ Error connecting to backend: $e");
-    }
-  }
-
   Future<void> requestPath(String boothName) async {
-    if (boothName.trim().isEmpty) {
-      print("❌ Booth name is empty.");
+    if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) {
+      print("❌ Invalid booth name or user location");
       return;
     }
-    if (userLocation.isEmpty || !userLocation.contains(",")) {
-      print("❌ Invalid user location: $userLocation");
-      return;
-    }
-    final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
-    final url = Uri.parse('http://143.215.53.49:8000/path');
-    final body = {
-      "from_": [start[0], start[1]],
-      "to": boothName,
-    };
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     try {
       final response = await http.post(
-        url,
+        Uri.parse('http://10.2.24.155:8000/path'),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
+        body: jsonEncode({"from_": start, "to": boothName}),
       );
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final path = data["path"];
+        final path = jsonDecode(response.body)["path"];
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
             title: Text("Path to $boothName"),
-            content: path.isEmpty
-                ? Text("No path found.")
-                : Text(path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text("OK"),
-              ),
-            ],
+            content: path.isEmpty ? Text("No path found.") : Text(path.map<String>((p) => "(${p[0]}, ${p[1]})").join(" → ")),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))],
           ),
         );
       } else {
@@ -246,36 +213,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     }
   }
 
-  void openMapScreen() async {
-    if (userLocation.isEmpty || selectedBooth.isEmpty) {
-      print("Missing location or booth");
-      return;
-    }
+  void openMapScreen() {
+    if (userLocation.isEmpty || selectedBooth.isEmpty) return;
     final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
-    final url = Uri.parse('http://143.215.53.49:8000/path');
-    final body = {
-      "from_": [start[0], start[1]],
-      "to": selectedBooth,
-    };
-    try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final path = List<List<dynamic>>.from(data["path"]);
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => MapScreen(path: path, startLocation: start)),
-        );
-      } else {
-        print("⚠️ Path request error: ${response.statusCode}");
-      }
-    } catch (e) {
-      print("❌ Error requesting path: $e");
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => MapScreen(path: [], startLocation: start)),
+    );
   }
 
   @override
@@ -286,10 +230,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            ElevatedButton(
-              onPressed: startScan,
-              child: Text("Scan for Beacons"),
-            ),
+            ElevatedButton(onPressed: startScan, child: Text("Scan for Beacons")),
             SizedBox(height: 16),
             for (var entry in scannedDevices.entries)
               Column(
@@ -301,74 +242,73 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 ],
               ),
             if (scannedDevices.isNotEmpty)
-              ElevatedButton(
-                onPressed: () => sendToBackend(scannedDevices),
-                child: Text("Get My Location"),
-              ),
+              ElevatedButton(onPressed: estimateUserLocation, child: Text("Get My Location")),
             if (userLocation.isNotEmpty) ...[
               SizedBox(height: 20),
               RawAutocomplete<String>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text == '')
-                    return const Iterable<String>.empty();
-                  return boothNames.where((String option) {
-                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  });
-                },
-                onSelected: (String selection) {
-                  setState(() {
-                    selectedBooth = selection;
-                  });
-                },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  return TextField(
-                    controller: textEditingController,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Enter booth name',
-                      border: OutlineInputBorder(),
+                optionsBuilder: (textEditingValue) => textEditingValue.text.isEmpty ? const Iterable<String>.empty() : boothNames.where((option) => option.toLowerCase().contains(textEditingValue.text.toLowerCase())),
+                onSelected: (selection) => setState(() => selectedBooth = selection),
+                fieldViewBuilder: (context, controller, focusNode, _) => TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(labelText: 'Enter booth name', border: OutlineInputBorder()),
+                  onChanged: (value) => selectedBooth = value,
+                ),
+                optionsViewBuilder: (context, onSelected, options) => Align(
+                  alignment: Alignment.topLeft,
+                  child: Material(
+                    elevation: 4.0,
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      children: options.map((option) => ListTile(title: Text(option), onTap: () => onSelected(option))).toList(),
                     ),
-                    onChanged: (value) {
-                      selectedBooth = value;
-                    },
-                  );
-                },
-                optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
-                  return Align(
-                    alignment: Alignment.topLeft,
-                    child: Material(
-                      elevation: 4.0,
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        shrinkWrap: true,
-                        children: options.map((String option) {
-                          return ListTile(
-                            title: Text(option),
-                            onTap: () => onSelected(option),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  );
-                },
+                  ),
+                ),
               ),
               SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: () => requestPath(selectedBooth),
-                child: Text("Find Path"),
-              )
+              ElevatedButton(onPressed: () => requestPath(selectedBooth), child: Text("Find Path")),
             ],
             SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: openMapScreen,
-              child: Text("Show Map"),
-            )
+            ElevatedButton(onPressed: openMapScreen, child: Text("Show Map")),
           ],
         ),
       ),
     );
   }
 }
+
+class Vector2D {
+  final double x, y;
+  Vector2D(this.x, this.y);
+  Vector2D operator +(Vector2D o) => Vector2D(x + o.x, y + o.y);
+  Vector2D operator -(Vector2D o) => Vector2D(x - o.x, y - o.y);
+  Vector2D scale(double f) => Vector2D(x * f, y * f);
+  double dot(Vector2D o) => x * o.x + y * o.y;
+  double distanceTo(Vector2D o) => sqrt((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y));
+}
+
+Vector2D? trilaterate(Map<String, double> d, Map<String, List<int>> p) {
+  if (d.length < 3) return null;
+  final keys = d.keys.toList();
+  final p1 = Vector2D(p[keys[0]]![0].toDouble(), p[keys[0]]![1].toDouble());
+  final p2 = Vector2D(p[keys[1]]![0].toDouble(), p[keys[1]]![1].toDouble());
+  final p3 = Vector2D(p[keys[2]]![0].toDouble(), p[keys[2]]![1].toDouble());
+  final r1 = d[keys[0]]!, r2 = d[keys[1]]!, r3 = d[keys[2]]!;
+
+  final A = 2 * (p2.x - p1.x), B = 2 * (p2.y - p1.y);
+  final C = r1 * r1 - r2 * r2 - p1.x * p1.x + p2.x * p2.x - p1.y * p1.y + p2.y * p2.y;
+  final D = 2 * (p3.x - p2.x), E = 2 * (p3.y - p2.y);
+  final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
+
+  final denom = A * E - B * D;
+  if (denom.abs() < 1e-6) return null;
+
+  final x = (C * E - B * F) / denom;
+  final y = (A * F - C * D) / denom;
+  return Vector2D(x, y);
+}
+
 
 // ========================
 // 🧭 MAP SCREEN
@@ -393,7 +333,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://143.215.53.49:8000/map-data");
+    final url = Uri.parse("http://10.2.24.155:8000/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
