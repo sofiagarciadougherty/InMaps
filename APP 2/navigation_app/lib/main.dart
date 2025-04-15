@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'dart:convert';
+import 'dart:async';
 
 void main() {
   runApp(NavigationApp());
@@ -23,27 +25,121 @@ class BLEScannerPage extends StatefulWidget {
 }
 
 class _BLEScannerPageState extends State<BLEScannerPage> {
+  // Map to store scanned device info.
   Map<String, int> scannedDevices = {};
   String userLocation = "";
   String selectedBooth = "";
   List<String> boothNames = [];
 
+  // Dictionary mapping beacon Major values (as strings) to their [x, y] position.
+  final Map<String, List<int>> beaconIdToPosition = {
+      "14j906Gy": [0, 0],
+      "14jr08Ef": [20, 0],
+      "14j606Gv": [0, 20],
+      // Add more based on what you find from the logs
+    };
+
+
+  // Your known iBeacon Proximity UUID (without header).
+  final String knownIBeaconUUID = "f7826da6-4fa2-4e98-8024-bc5b71e0893e";
+
+  // Initialize FlutterReactiveBle instance and scan subscription.
+  final flutterReactiveBle = FlutterReactiveBle();
+  StreamSubscription<DiscoveredDevice>? _scanSubscription;
+
   @override
   void initState() {
     super.initState();
+    // Listen to Bluetooth status for debugging.
+    flutterReactiveBle.statusStream.listen((status) {
+      print("Bluetooth status: $status");
+    });
     fetchBoothNames();
   }
 
-  void startScan() {
-    scannedDevices.clear();
-    Future.delayed(const Duration(seconds: 2), () {
-      setState(() {
-        scannedDevices["D1:AA:BE:01:01:01"] = -60;
-        scannedDevices["D2:BB:BE:02:02:02"] = -78;
-        scannedDevices["D3:CC:BE:03:03:03"] = -82;
-      });
-    });
+  @override
+  void dispose() {
+    _scanSubscription?.cancel();
+    super.dispose();
   }
+
+  /// Formats 16 bytes into a standard UUID string (8-4-4-4-12).
+  String _formatAsUuid(List<int> bytes) {
+    final sb = StringBuffer();
+    for (int i = 0; i < bytes.length; i++) {
+      sb.write(bytes[i].toRadixString(16).padLeft(2, '0'));
+      if (i == 3 || i == 5 || i == 7 || i == 9) sb.write('-');
+    }
+    return sb.toString().toLowerCase();
+  }
+
+  /// Parses the iBeacon advertisement manufacturer data.
+  /// Returns the Proximity UUID if the data is in proper iBeacon format.
+  String? parseIBeaconUUID(List<int> data) {
+    if (data.length < 25) {
+      print("Manufacturer data length is less than expected: ${data.length}");
+      return null;
+    }
+    // Check that the first 4 bytes match the iBeacon header: [0x4c, 0x00, 0x02, 0x15].
+    if (!(data[0] == 0x4c && data[1] == 0x00 && data[2] == 0x02 && data[3] == 0x15)) {
+      print("Data does not match iBeacon header: ${data.sublist(0, 4)}");
+      return null;
+    }
+    // Extract the 16-byte Proximity UUID.
+    final uuidBytes = data.sublist(4, 20);
+    final uuidStr = _formatAsUuid(uuidBytes);
+    print("Parsed Proximity UUID: $uuidStr");
+    return uuidStr;
+  }
+
+  /// Extracts the Major value from iBeacon advertisement data.
+  int? parseMajor(List<int> data) {
+    if (data.length < 25) return null;
+    final major = (data[20] << 8) + data[21];
+    print("Parsed Major: $major");
+    return major;
+  }
+
+  // Start scanning for devices.
+    void startScan() async {
+      await _scanSubscription?.cancel();
+      setState(() {
+        scannedDevices.clear();
+      });
+
+      _scanSubscription = flutterReactiveBle.scanForDevices(
+        withServices: [], // Scan all
+        scanMode: ScanMode.lowLatency,
+      ).listen((device) {
+        // ✅ Filter only Kontakt beacons
+        if (device.name.toLowerCase() == "kontakt" &&
+            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+
+          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+          final asciiBytes = rawData.sublist(13);
+          final beaconId = String.fromCharCodes(asciiBytes);
+
+          print("🔎 Beacon ID: $beaconId");
+          print("📶 RSSI: ${device.rssi}");
+
+          // Match beaconId to a location
+          if (beaconIdToPosition.containsKey(beaconId)) {
+            final pos = beaconIdToPosition[beaconId]!;
+            print("📍 Mapped Position: $pos");
+
+            setState(() {
+              scannedDevices[beaconId] = device.rssi;
+            });
+          } else {
+            print("⚠️ Unknown beacon ID: $beaconId");
+          }
+        }
+      }, onError: (error) {
+        print("❌ Scan error: $error");
+      });
+    }
+
+
 
   Future<void> fetchBoothNames() async {
     final url = Uri.parse('http://143.215.53.49:8000/booths');
@@ -65,19 +161,19 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   Future<void> sendToBackend(Map<String, int> scannedDevices) async {
     final url = Uri.parse('http://143.215.53.49:8000/locate');
     final body = {
-      "ble_data": scannedDevices.entries.map((e) => {
-            "uuid": e.key,
-            "rssi": e.value,
-          }).toList()
+      "ble_data": scannedDevices.entries
+          .map((e) => {
+                "uuid": e.key, // Consider sending additional data (such as Major) if needed.
+                "rssi": e.value,
+              })
+          .toList()
     };
-
     try {
       final response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -89,7 +185,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             title: Text("Your Location"),
             content: Text("You are at: ($userLocation)"),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text("OK"))
             ],
           ),
         );
@@ -106,26 +204,22 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       print("❌ Booth name is empty.");
       return;
     }
-
     if (userLocation.isEmpty || !userLocation.contains(",")) {
       print("❌ Invalid user location: $userLocation");
       return;
     }
-
     final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
     final url = Uri.parse('http://143.215.53.49:8000/path');
     final body = {
       "from_": [start[0], start[1]],
       "to": boothName,
     };
-
     try {
       final response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final path = data["path"];
@@ -157,29 +251,24 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       print("Missing location or booth");
       return;
     }
-
     final start = userLocation.split(",").map((e) => int.parse(e.trim())).toList();
     final url = Uri.parse('http://143.215.53.49:8000/path');
     final body = {
       "from_": [start[0], start[1]],
       "to": selectedBooth,
     };
-
     try {
       final response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(body),
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final path = List<List<dynamic>>.from(data["path"]);
-
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => MapScreen(path: path, startLocation: start)),
-
         );
       } else {
         print("⚠️ Path request error: ${response.statusCode}");
@@ -188,7 +277,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       print("❌ Error requesting path: $e");
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -221,7 +309,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               SizedBox(height: 20),
               RawAutocomplete<String>(
                 optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text == '') return const Iterable<String>.empty();
+                  if (textEditingValue.text == '')
+                    return const Iterable<String>.empty();
                   return boothNames.where((String option) {
                     return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
                   });
@@ -285,9 +374,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 // 🧭 MAP SCREEN
 // ========================
 class MapScreen extends StatefulWidget {
-    final List<List<dynamic>> path;
-    final List<int> startLocation;
-    MapScreen({required this.path, required this.startLocation});
+  final List<List<dynamic>> path;
+  final List<int> startLocation;
+  MapScreen({required this.path, required this.startLocation});
   @override
   _MapScreenState createState() => _MapScreenState();
 }
@@ -310,20 +399,17 @@ class _MapScreenState extends State<MapScreen> {
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final fetchedElements = json["elements"];
-
-        // Compute bounds
+        // Compute bounds.
         double maxXLocal = 0, maxYLocal = 0;
         for (var el in fetchedElements) {
           final start = el["start"];
           final end = el["end"];
-
           maxXLocal = [start["x"], end["x"], maxXLocal].reduce((a, b) => a > b ? a : b).toDouble();
           maxYLocal = [start["y"], end["y"], maxYLocal].reduce((a, b) => a > b ? a : b).toDouble();
         }
-
         setState(() {
           elements = fetchedElements;
-          maxX = maxXLocal + 100; // 100 px padding
+          maxX = maxXLocal + 100; // 100 px padding.
           maxY = maxYLocal + 100;
         });
       } else {
@@ -347,7 +433,6 @@ class _MapScreenState extends State<MapScreen> {
               child: Container(
                 width: maxX,
                 height: maxY,
-
                 child: CustomPaint(
                   painter: MapPainter(elements, widget.path, widget.startLocation),
                 ),
@@ -380,8 +465,7 @@ class MapPainter extends CustomPainter {
       final start = el["start"];
       final end = el["end"];
       final name = el["name"];
-      final type = el["type"].toString().toLowerCase(); // normalize the type
-
+      final type = el["type"].toString().toLowerCase();
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
       final center = Offset(
@@ -389,7 +473,6 @@ class MapPainter extends CustomPainter {
         (start["y"] + end["y"]) / 2,
       );
 
-      // DEBUG
       if (name.toLowerCase().contains("bathroom")) {
         debugPrint("🛁 Drawing bathroom at $startOffset to $endOffset");
       }
@@ -400,23 +483,15 @@ class MapPainter extends CustomPainter {
       } else if (type == "booth") {
         paint = paintBooth;
       } else {
-        paint = paintOther; // Fallback paint
+        paint = paintOther;
       }
 
-      canvas.drawRect(
-            Rect.fromPoints(startOffset, endOffset),
-            type == "blocker"
-                ? paintBlocker
-                : type == "booth"
-                    ? paintBooth
-                    : paintOther,
-          );
-
-       canvas.drawCircle(
-         Offset((startLocation[0]+0.5) * cellSize, (startLocation[1]+0.5) * cellSize),
-         6,
-         paintUser,
-       );
+      canvas.drawRect(Rect.fromPoints(startOffset, endOffset), paint);
+      canvas.drawCircle(
+        Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize),
+        6,
+        paintUser,
+      );
 
       final span = TextSpan(text: name, style: textStyle);
       final tp = TextPainter(
@@ -428,12 +503,10 @@ class MapPainter extends CustomPainter {
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
 
-
-    // Draw navigation path
     if (path.isNotEmpty) {
       for (int i = 0; i < path.length - 1; i++) {
         final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
-        final p2 = Offset((path[i + 1][0]+0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
+        final p2 = Offset((path[i + 1][0] + 0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
         canvas.drawLine(p1, p2, paintPath);
       }
     }
@@ -442,3 +515,4 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
+

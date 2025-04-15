@@ -91,9 +91,9 @@ booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
 BEACON_POSITIONS = {
-    "D1:AA:BE:01:01:01": (2, 2),
-    "D2:BB:BE:02:02:02": (6, 2),
-    "D3:CC:BE:03:03:03": (4, 6)
+    "17091": (0, 0),
+    "15995":(1,0),
+    "25450":(0,1)
 }
 
 # ====== Models ======

@@ -2,5 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/APP 2/navigation_app/kontakt-ios-sdk" vcs="Git" />
   </component>
 </project>
