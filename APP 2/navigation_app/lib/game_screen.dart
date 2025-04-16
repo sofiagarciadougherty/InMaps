@@ -269,8 +269,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              _navigateToTask(task);
+              Navigator.pop(context); // Close the dialog first.
+              // Wait until the current frame finishes (ensuring the dialog is fully dismissed),
+              // then navigate:
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _navigateToTask(task);
+              });
             },
             child: const Text("Go Now"),
           ),
@@ -289,8 +293,16 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": task["name"]}),
       );
+      debugPrint("Response from /path: ${response.statusCode}");
+      debugPrint("Response body: ${response.body}");
       if (response.statusCode == 200) {
-        final path = jsonDecode(response.body)["path"];
+        final decoded = jsonDecode(response.body);
+        final path = decoded["path"];
+        if (path == null || (path is List && path.isEmpty)) {
+          debugPrint("Returned path is empty.");
+          return;
+        }
+        debugPrint("Navigating to MapScreen with path: $path and start: $start");
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -300,6 +312,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             ),
           ),
         );
+        debugPrint("Navigator.push() called");
+      } else {
+        debugPrint("Non-200 status code: ${response.statusCode}");
       }
     } catch (e) {
       debugPrint("❌ Error navigating to task: $e");
