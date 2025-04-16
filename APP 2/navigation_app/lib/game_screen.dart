@@ -4,6 +4,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:http/http.dart' as http;
+import 'package:navigation_app/map_screen.dart';
+
+// Global variable to preserve total points between screen navigations.
+int globalTotalPoints = 0;
 
 /// A simple 2D vector class used for trilateration.
 class Vector2D {
@@ -23,22 +27,27 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
 
-  // Example mapping from beacon IDs to positions.
+  /// Mapping of known beacon IDs to their [x, y] positions.
   final Map<String, List<int>> beaconIdToPosition = {
     "14j906Gy": [0, 0],
     "14jr08Ef": [200, 0],
     "14j606Gv": [0, 200],
   };
 
-  // Scanned devices: key is beaconID, value is RSSI.
+  /// Stores scanned devices: beacon ID → RSSI.
   Map<String, int> scannedDevices = {};
 
-  // User location as a string "x, y".
+  /// Current user location as a string "x, y".
   String userLocation = "";
 
-  // ---------------- Game Tasks Data ----------------
+  // ---------------- Game Tasks ----------------
+  /// Each task contains fields:
+  /// "id", "name", "category", "description", "x", "y", "points", and "completed".
   List<Map<String, dynamic>> tasks = [];
-  int totalPoints = 0;
+  int totalPoints = 0; // Loaded from globalTotalPoints.
+
+  // Loading state for tasks.
+  bool isLoading = true;
 
   // ---------------- Reward Popup Animation ----------------
   bool showReward = false;
@@ -47,15 +56,17 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   late final Animation<double> _scaleAnimation;
   late final Animation<double> _opacityAnimation;
 
-  // ---------------- Proximity Timer ----------------
+  // ---------------- Periodic Timer ----------------
   Timer? _proximityTimer;
 
-  // ---------------- Lifecycle ----------------
   @override
   void initState() {
     super.initState();
+    // Load any existing points.
+    totalPoints = globalTotalPoints;
+
     _startBleScan();
-    _fetchTasks();
+    _fetchTasks(); // After fetching, isLoading is set to false.
 
     _animationController = AnimationController(
       vsync: this,
@@ -64,13 +75,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     _scaleAnimation = Tween<double>(begin: 0, end: 1).animate(_animationController);
     _opacityAnimation = Tween<double>(begin: 0, end: 1).animate(_animationController);
 
-    // Every second, update user location and check proximity.
+    // Update user location and check proximity every second.
     _proximityTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _estimateUserLocation();
       _checkProximity();
     });
   }
-
 
   @override
   void dispose() {
@@ -80,16 +90,16 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-
   // ---------------- BLE Scanning ----------------
   void _startBleScan() async {
     await _scanSubscription?.cancel();
     if (mounted) {
       setState(() => scannedDevices.clear());
     }
-    _scanSubscription = flutterReactiveBle
-        .scanForDevices(withServices: [], scanMode: ScanMode.lowLatency)
-        .listen((device) {
+    _scanSubscription = flutterReactiveBle.scanForDevices(
+      withServices: [],
+      scanMode: ScanMode.lowLatency,
+    ).listen((device) {
       if (device.name.toLowerCase() == "kontakt" &&
           device.serviceData.containsKey(Uuid.parse("FE6A"))) {
         final rawData = device.serviceData[Uuid.parse("FE6A")]!;
@@ -117,14 +127,17 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (distances.length < 3) return null;
     final keys = distances.keys.toList();
     final p1 = Vector2D(
-        beaconIdToPosition[keys[0]]![0].toDouble(),
-        beaconIdToPosition[keys[0]]![1].toDouble());
+      beaconIdToPosition[keys[0]]![0].toDouble(),
+      beaconIdToPosition[keys[0]]![1].toDouble(),
+    );
     final p2 = Vector2D(
-        beaconIdToPosition[keys[1]]![0].toDouble(),
-        beaconIdToPosition[keys[1]]![1].toDouble());
+      beaconIdToPosition[keys[1]]![0].toDouble(),
+      beaconIdToPosition[keys[1]]![1].toDouble(),
+    );
     final p3 = Vector2D(
-        beaconIdToPosition[keys[2]]![0].toDouble(),
-        beaconIdToPosition[keys[2]]![1].toDouble());
+      beaconIdToPosition[keys[2]]![0].toDouble(),
+      beaconIdToPosition[keys[2]]![1].toDouble(),
+    );
     final r1 = distances[keys[0]]!;
     final r2 = distances[keys[1]]!;
     final r3 = distances[keys[2]]!;
@@ -137,7 +150,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
     final denom = A * E - B * D;
     if (denom.abs() < 1e-6) return null;
-
     final x = (C * E - B * F) / denom;
     final y = (A * F - C * D) / denom;
     return Vector2D(x, y);
@@ -147,7 +159,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   void _estimateUserLocation() {
     final distances = <String, double>{};
     scannedDevices.forEach((id, rssi) {
-      distances[id] = _estimateDistance(rssi, -59); // using an approximate TX power.
+      distances[id] = _estimateDistance(rssi, -59);
     });
     final position = _trilaterate(distances);
     if (position != null && mounted) {
@@ -170,8 +182,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         } else {
           throw Exception("Unexpected JSON format");
         }
+        debugPrint("DEBUG: Fetched booths: ${booths.length} items.");
         if (mounted) {
           setState(() {
+            // Map tasks and filter only those with category "booth" or "visit"
             tasks = booths.map<Map<String, dynamic>>((b) {
               final start = b["start"] ?? {"x": 0, "y": 0};
               final end = b["end"] ?? {"x": 0, "y": 0};
@@ -180,21 +194,26 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               return {
                 "id": b["booth_id"]?.toString() ?? "",
                 "name": b["name"] ?? "Unnamed",
-                "category": b["category"] ?? "Visit",
+                // Convert the category to lowercase to ease filtering.
+                "category": b["category"]?.toString().toLowerCase() ?? "visit",
                 "description": b["description"] ?? "No description available",
                 "x": centerX,
                 "y": centerY,
                 "points": b["points"] ?? 20,
                 "completed": false,
               };
-            }).toList();
+            }).where((t) => t["category"] == "booth" || t["category"] == "visit").toList();
+            isLoading = false;
+            debugPrint("DEBUG: tasks in GameScreen: ${tasks.length} items.");
           });
         }
       } else {
         debugPrint("❌ Could not fetch tasks. Status = ${response.statusCode}");
+        if (mounted) setState(() => isLoading = false);
       }
     } catch (e) {
       debugPrint("❌ Task fetch error: $e");
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -205,7 +224,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (parts.length < 2) return;
     final userX = double.tryParse(parts[0].trim()) ?? 0;
     final userY = double.tryParse(parts[1].trim()) ?? 0;
-    const proximityThreshold = 5.0; // Adjust based on your coordinate system.
+    const proximityThreshold = 5.0; // Adjust threshold as needed.
 
     for (var task in tasks) {
       if (!task["completed"]) {
@@ -217,6 +236,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             setState(() {
               task["completed"] = true;
               totalPoints += (task["points"] as int);
+              // Update global points.
+              globalTotalPoints = totalPoints;
               rewardText = "+${task["points"]} points!";
               showReward = true;
             });
@@ -232,14 +253,93 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     }
   }
 
+  // ---------------- Show Task Notification Dialog ----------------
+  void _showTaskDialog(Map<String, dynamic> task) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(task["name"]),
+        content: Text("If you go to ${task["name"]}, you win ${task["points"]} points!"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text("Exit"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close the dialog first.
+              // Wait until the current frame finishes (ensuring the dialog is fully dismissed),
+              // then navigate:
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _navigateToTask(task);
+              });
+            },
+            child: const Text("Go Now"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- Navigate to Map Screen for the Selected Task ----------------
+  Future<void> _navigateToTask(Map<String, dynamic> task) async {
+    if (userLocation.isEmpty) return;
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    try {
+      final response = await http.post(
+        Uri.parse('http://128.61.115.73:8001/path'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"from_": start, "to": task["name"]}),
+      );
+      debugPrint("Response from /path: ${response.statusCode}");
+      debugPrint("Response body: ${response.body}");
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final path = decoded["path"];
+        if (path == null || (path is List && path.isEmpty)) {
+          debugPrint("Returned path is empty.");
+          return;
+        }
+        debugPrint("Navigating to MapScreen with path: $path and start: $start");
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MapScreen(
+              path: List<List<dynamic>>.from(path),
+              startLocation: start,
+            ),
+          ),
+        ).then((_) {
+          // Reset the task's completed state to allow repeated navigation.
+          setState(() {
+            task["completed"] = false;
+          });
+        });
+        debugPrint("Navigator.push() called");
+      } else {
+        debugPrint("Non-200 status code: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("❌ Error navigating to task: $e");
+    }
+  }
+
   // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
+    // Filter tasks to include only "booth" or "visit" category.
+    final boothTasks = tasks.where((t) => t["category"] == "booth" || t["category"] == "visit").toList();
     return Scaffold(
       appBar: AppBar(title: const Text("Game Mode")),
-      body: Stack(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : boothTasks.isEmpty
+          ? const Center(child: Text("No tasks found."))
+          : Stack(
         children: [
-          // Main content: header, task list, etc.
+          // Main content: header and task list.
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -252,43 +352,30 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
+                child: const Text(
                   "Game Tasks:",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
               const SizedBox(height: 10),
               Expanded(
                 child: ListView.builder(
-                  itemCount: tasks.length,
+                  itemCount: boothTasks.length,
                   itemBuilder: (context, index) {
-                    final t = tasks[index];
-                    final isCompleted = t["completed"] == true;
+                    final t = boothTasks[index];
                     return InkWell(
                       onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: Text(t["name"]),
-                            content: Text(t["description"]),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text("Close"),
-                              ),
-                            ],
-                          ),
-                        );
+                        _showTaskDialog(t);
                       },
                       child: Container(
                         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: isCompleted ? Colors.green[50] : Colors.white,
+                          color: t["completed"] ? Colors.green[50] : Colors.white,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: isCompleted ? Colors.green : Colors.grey.shade300,
-                            width: isCompleted ? 2 : 1,
+                            color: t["completed"] ? Colors.green : Colors.grey.shade300,
+                            width: t["completed"] ? 2 : 1,
                           ),
                           boxShadow: [
                             BoxShadow(
@@ -306,7 +393,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                             ),
                             Text(t["category"] ?? "Visit"),
-                            Text(isCompleted ? "✅ Completed" : "🕓 Pending"),
+                            Text(t["completed"] ? "✅ Completed" : "🕓 Pending"),
                             Text("Reward: ${t["points"]} pts"),
                           ],
                         ),
@@ -352,4 +439,3 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     );
   }
 }
-

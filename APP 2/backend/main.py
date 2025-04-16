@@ -23,7 +23,7 @@ def load_booth_data(csv_path):
             print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
             continue
         try:
-            coords = json.loads(coord_cell)
+            coords = json.loads(coord_cell.replace('\"', '"'))
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
             print(f"⚠️ Skipping row — JSON parsing failed: {e}")
@@ -48,8 +48,7 @@ def load_booth_data(csv_path):
                 "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
                 "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
             },
-            "center": {"x": center[0], "y": center[1]},
-            "description": row.get("description", "No description available"),
+            "center": {"x": center[0], "y": center[1]}
         })
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
@@ -65,7 +64,7 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
         if not isinstance(coord_cell, str):
             continue
         try:
-            coords = json.loads(coord_cell)
+            coords = json.loads(coord_cell.replace('\"', '"'))
         except Exception:
             continue
 
@@ -131,68 +130,6 @@ def locate_user(data: BLEScan):
     y = round(weighted_sum_y / total_weight)
     return {"x": x, "y": y}
 
-
-@app.get("/booths")
-def get_all_booths():
-    return booth_data
-
-@app.get("/booths/{booth_id}")
-def get_booth_by_id(booth_id: int):
-    booth = next((b for b in booth_data if b["booth_id"] == booth_id), None)
-    return booth or {"error": "Booth not found"}
-
-@app.get("/map-data")
-def get_map_data():
-    visual_elements = []
-
-    for booth in booth_data:
-        visual_elements.append({
-            "name": booth["name"],
-            "type": booth["type"],
-            "start": booth["area"]["start"],
-            "end": booth["area"]["end"],
-            "description": booth.get("description", "No description available")
-        })
-
-    return JSONResponse(content={"elements": visual_elements})
-
-# ====== A* Algorithm ======
-def a_star(start, goal):
-    def heuristic(a, b):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
-    open_set = [(heuristic(start, goal), 0, start, [])]
-    visited = set()
-
-    while open_set:
-            est_total_cost, path_cost, current, path = heappop(open_set)
-
-            if current == goal:
-                return path + [current]
-
-            if current in visited:
-                continue
-            visited.add(current)
-
-            for dx, dy in neighbors:
-                nx, ny = current[0] + dx, current[1] + dy
-
-                # Check bounds
-                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
-                    # Check if the cell is walkable (1 = free space)
-                    if VENUE_GRID[ny][nx] == 1 and (nx, ny) not in visited:
-                        next_cost = path_cost + 1
-                        estimated_total = next_cost + heuristic((nx, ny), goal)
-                        heappush(open_set, (
-                            estimated_total,
-                            next_cost,
-                            (nx, ny),
-                            path + [current]
-                        ))
-
-    return []
-
 @app.post("/path")
 def get_path(request: PathRequest):
     print("✅ /path endpoint hit:", request)
@@ -241,3 +178,64 @@ def get_path(request: PathRequest):
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
 
     return {"path": path}
+
+
+@app.get("/booths")
+def get_all_booths():
+    return booth_data
+
+@app.get("/booths/{booth_id}")
+def get_booth_by_id(booth_id: int):
+    booth = next((b for b in booth_data if b["booth_id"] == booth_id), None)
+    return booth or {"error": "Booth not found"}
+
+@app.get("/map-data")
+def get_map_data():
+    visual_elements = []
+
+    for booth in booth_data:
+        visual_elements.append({
+            "name": booth["name"],
+            "type": booth["type"],
+            "start": booth["area"]["start"],
+            "end": booth["area"]["end"]
+        })
+
+    return JSONResponse(content={"elements": visual_elements})
+
+# ====== A* Algorithm ======
+def a_star(start, goal):
+    def heuristic(a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+    neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
+    open_set = [(heuristic(start, goal), 0, start, [])]
+    visited = set()
+
+    while open_set:
+            est_total_cost, path_cost, current, path = heappop(open_set)
+
+            if current == goal:
+                return path + [current]
+
+            if current in visited:
+                continue
+            visited.add(current)
+
+            for dx, dy in neighbors:
+                nx, ny = current[0] + dx, current[1] + dy
+
+                # Check bounds
+                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
+                    # Check if the cell is walkable (1 = free space)
+                    if VENUE_GRID[ny][nx] == 1 and (nx, ny) not in visited:
+                        next_cost = path_cost + 1
+                        estimated_total = next_cost + heuristic((nx, ny), goal)
+                        heappush(open_set, (
+                            estimated_total,
+                            next_cost,
+                            (nx, ny),
+                            path + [current]
+                        ))
+
+    return []
