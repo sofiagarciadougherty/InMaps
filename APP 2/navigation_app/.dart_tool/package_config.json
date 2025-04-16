@@ -99,12 +99,15 @@
     },
     {
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       "name": "flutter_launcher_icons",
       "rootUri": "file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_launcher_icons-0.13.1",
       "packageUri": "lib/",
       "languageVersion": "2.18"
     },
     {
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       "name": "flutter_lints",
@@ -324,7 +327,11 @@
     }
   ],
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   "generated": "2025-04-16T16:35:16.009974Z",
+=======
+  "generated": "2025-04-16T05:51:41.030456Z",
+>>>>>>> Stashed changes
 =======
   "generated": "2025-04-16T05:51:41.030456Z",
 >>>>>>> Stashed changes

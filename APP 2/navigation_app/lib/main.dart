@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+=======
+import 'package:flutter_compass/flutter_compass.dart';
+>>>>>>> Stashed changes
 =======
 import 'package:flutter_compass/flutter_compass.dart';
 >>>>>>> Stashed changes
@@ -76,6 +80,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   static const double pixelsPerMeter = 20.0;
   static const double cellSize = metersPerCell * pixelsPerMeter;
 
+  static const double metersPerCell = 0.5;
+  static const double pixelsPerMeter = 20.0;
+  static const double cellSize = metersPerCell * pixelsPerMeter;
+
   @override
   void initState() {
     super.initState();
@@ -110,6 +118,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     double distance = pow(10, ratio / 25).toDouble();
     return distance.clamp(0.5, 10.0).toDouble();
   }
+<<<<<<< Updated upstream
 >>>>>>> Stashed changes
 
   // Flag to track connection status
@@ -208,6 +217,23 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       userLocation = "${x.round()}, ${y.round()}";
       debugPrint("📍 [Auto-update] Current estimated location: $userLocation");
 =======
+=======
+
+  void estimateUserLocation() {
+    final distances = <String, double>{};
+    final knownBeaconPositions = <String, List<double>>{};
+
+    scannedDevices.forEach((id, rssi) {
+      if (bleService.beaconIdToPosition.containsKey(id)) {
+        final distance = estimateDistance(rssi, -59);
+        distances[id] = distance;
+        final meters = bleService.beaconIdToPosition[id]!;
+        knownBeaconPositions[id] = [meters[0] * pixelsPerMeter, meters[1] * pixelsPerMeter];
+        print("📡 $id at ${knownBeaconPositions[id]} → RSSI: $rssi → Est. dist: ${distance.toStringAsFixed(2)}");
+      }
+    });
+
+>>>>>>> Stashed changes
     final position = trilaterate(distances, knownBeaconPositions);
 
     if (position != null) {
@@ -279,6 +305,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   Future<void> requestPath(String boothName) async {
     if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+=======
+    final start = userLocation.split(",").map((e) => double.parse(e.trim()) / cellSize).toList();
+>>>>>>> Stashed changes
 =======
     final start = userLocation.split(",").map((e) => double.parse(e.trim()) / cellSize).toList();
 >>>>>>> Stashed changes
@@ -317,6 +347,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   void openMapScreen() {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
     final start = userLocation.split(",").map((e) => double.parse(e.trim()) / cellSize).toList();
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
       final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
@@ -479,6 +512,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                             title: Text(option),
                             onTap: () => onSelected(option),
                           )).toList(),
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
                     ),
                   ),
