@@ -79,11 +79,15 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   double estimateDistance(int rssi, int txPower) =>
       pow(10, (txPower - rssi) / 20).toDouble();
 
-  // ------------------- Start Scanning for Beacons -------------------
+  // Flag to track connection status
+  bool hasShownConnectedPopup = false;
+
+// ------------------- Start Scanning for Beacons -------------------
   void startScan() async {
     await _scanSubscription?.cancel();
     setState(() {
       scannedDevices.clear();
+      hasShownConnectedPopup = false;
     });
 
     _scanSubscription = flutterReactiveBle.scanForDevices(
@@ -95,17 +99,37 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         final rawData = device.serviceData[Uuid.parse("FE6A")]!;
         final asciiBytes = rawData.sublist(13);
         final beaconId = String.fromCharCodes(asciiBytes);
+
         if (beaconIdToPosition.containsKey(beaconId)) {
-          setState(() {
-            scannedDevices[beaconId] = device.rssi;
-            debugPrint("📶 Updated $beaconId with RSSI ${device.rssi}");
-          });
+          scannedDevices[beaconId] = device.rssi;
+          debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
+
+          // Show "Connected" only the first time you reach 3 beacons
+          if (scannedDevices.length == 3 && !hasShownConnectedPopup) {
+            hasShownConnectedPopup = true;
+
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text("Connected"),
+                content: const Text("Successfully connected to the event."),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("OK"),
+                  )
+                ],
+              ),
+            );
+          }
         }
       }
     }, onError: (error) {
       debugPrint("❌ Scan error: $error");
     });
   }
+
+
 
   // ------------------- Get My Location Button -------------------
   void estimateUserLocation() {
@@ -440,12 +464,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 child: const Text("Game Mode"),
               ),
             ),
-            const SizedBox(height: 20),
-            // Optional debug info for scanned beacons.
-            if (scannedDevices.isNotEmpty)
-              const Text("Scanned Beacons:", style: TextStyle(fontWeight: FontWeight.bold)),
-            for (var entry in scannedDevices.entries)
-              Text("Beacon: ${entry.key}, RSSI: ${entry.value}"),
           ],
         ),
       ),
