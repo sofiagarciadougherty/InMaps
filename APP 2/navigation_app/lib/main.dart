@@ -212,7 +212,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Fetch Booth Names from Backend -------------------
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://128.61.115.73:8001/booths');
+    final url = Uri.parse('http://143.215.53.49:8001/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -233,7 +233,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     try {
       final response = await http.post(
-        Uri.parse('http://128.61.115.73:8001/path'),
+        Uri.parse('http://143.215.53.49:8001/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
@@ -257,19 +257,24 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   // ------------------- Open Map Screen -------------------
-  void openMapScreen() {
-    if (userLocation.isEmpty || selectedBooth.isEmpty) {
-      debugPrint("Cannot open map – no location or booth selected.");
-      return;
+  void openMapScreen() async {
+      if (userLocation.isEmpty || selectedBooth.isEmpty) return;
+
+      final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+      final heading = await FlutterCompass.events!.first; // One-time heading fetch
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MapScreen(
+            path: currentPath,
+            startLocation: start,
+            headingDegrees: heading.heading ?? 0.0,
+          ),
+        ),
+      );
     }
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MapScreen(path: currentPath, startLocation: start),
-      ),
-    );
-  }
+
 
   // ------------------- UI Build -------------------
   @override

@@ -1,11 +1,17 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:math';
+import 'package:flutter_compass/flutter_compass.dart';
+import 'dart:async';
+
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
   final List<int> startLocation;
-  MapScreen({required this.path, required this.startLocation});
+  final double headingDegrees;
+  MapScreen({required this.path, required this.startLocation,
+  required this.headingDegrees});
 
   @override
   _MapScreenState createState() => _MapScreenState();
@@ -16,21 +22,30 @@ class _MapScreenState extends State<MapScreen> {
   double maxX = 0;
   double maxY = 0;
 
+  double currentHeading = 0.0;
+  StreamSubscription<CompassEvent>? _headingSub;
+
   @override
   void initState() {
     super.initState();
     fetchMapData();
+    _headingSub = FlutterCompass.events?.listen((event) {
+      if (event.heading != null) {
+        setState(() {
+          currentHeading = event.heading!;
+        });
+      }
+    });
   }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://128.61.115.73:8001/map-data");
+    final url = Uri.parse("http://143.215.53.49:8001/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final fetchedElements = json["elements"];
         double maxXLocal = 0, maxYLocal = 0;
-        // Compute maximum x and y from the start and end coordinates
         for (var el in fetchedElements) {
           final start = el["start"];
           final end = el["end"];
@@ -39,7 +54,7 @@ class _MapScreenState extends State<MapScreen> {
         }
         setState(() {
           elements = fetchedElements;
-          maxX = maxXLocal + 100; // Add padding (100 pixels) for display.
+          maxX = maxXLocal + 100;
           maxY = maxYLocal + 100;
         });
       } else {
@@ -51,34 +66,47 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   @override
+  void dispose() {
+    _headingSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Map View")),
       body: elements.isEmpty
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : InteractiveViewer(
-        minScale: 0.2,
-        maxScale: 5.0,
-        boundaryMargin: const EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          child: CustomPaint(
-            painter: MapPainter(elements, widget.path, widget.startLocation),
-          ),
-        ),
-      ),
+              minScale: 0.2,
+              maxScale: 5.0,
+              boundaryMargin: const EdgeInsets.all(1000),
+              child: Container(
+                width: maxX,
+                height: maxY,
+                child: CustomPaint(
+                  painter: MapPainter(
+                    elements,
+                    widget.path,
+                    widget.startLocation,
+                    currentHeading, // ✅ use dynamic heading here
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }
+
 
 class MapPainter extends CustomPainter {
   final List<dynamic> elements;
   final List<List<dynamic>> path;
   final List<int> startLocation;
   static const double cellSize = 50.0;
+  final double headingDegrees;
 
-  MapPainter(this.elements, this.path, this.startLocation);
+  MapPainter(this.elements, this.path, this.startLocation, this.headingDegrees);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -138,6 +166,27 @@ class MapPainter extends CustomPainter {
       tp.layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
+    
+    // Draw translucent direction cone
+    final userCenter = Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize);
+    const double coneLength = 80.0;
+    const double coneAngle = pi / 6; // 30 degrees
+
+    final headingRadians = headingDegrees * pi / 180;
+    final angle1 = headingRadians - coneAngle;
+    final angle2 = headingRadians + coneAngle;
+
+    final p1 = userCenter + Offset(cos(angle1), sin(angle1)) * coneLength;
+    final p2 = userCenter + Offset(cos(angle2), sin(angle2)) * coneLength;
+
+    final conePath = Path()
+      ..moveTo(userCenter.dx, userCenter.dy)
+      ..lineTo(p1.dx, p1.dy)
+      ..lineTo(p2.dx, p2.dy)
+      ..close();
+
+    canvas.drawPath(conePath, paintCone);
+
 
     // Draw the path if available.
     if (path.isNotEmpty) {

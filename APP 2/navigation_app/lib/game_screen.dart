@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:http/http.dart' as http;
 import 'package:navigation_app/map_screen.dart';
+import 'package:flutter_compass/flutter_compass.dart';
+
 
 // Global variable to preserve total points between screen navigations.
 int globalTotalPoints = 0;
@@ -287,9 +289,11 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   Future<void> _navigateToTask(Map<String, dynamic> task) async {
     if (userLocation.isEmpty) return;
     final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    final heading = await FlutterCompass.events!.first;
+    final headingDegrees = heading.heading ?? 0.0;
     try {
       final response = await http.post(
-        Uri.parse('http://128.61.115.73:8001/path'),
+        Uri.parse('http://143.215.53.49:8001/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": task["name"]}),
       );
@@ -309,6 +313,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             builder: (_) => MapScreen(
               path: List<List<dynamic>>.from(path),
               startLocation: start,
+              headingDegrees: headingDegrees,
             ),
           ),
         ).then((_) {
