@@ -91,6 +91,9 @@ class MapPainter extends CustomPainter {
       ..strokeWidth = 3.0;
     final paintUser = Paint()..color = Colors.blue;
     final textStyle = const TextStyle(color: Colors.black, fontSize: 10);
+    final paintCone = Paint()
+      ..color = Colors.blue.withOpacity(0.2)
+      ..style = PaintingStyle.fill;
 
     // Draw each element from the map data.
     for (var el in elements) {
@@ -115,6 +118,8 @@ class MapPainter extends CustomPainter {
       }
 
       canvas.drawRect(Rect.fromPoints(startOffset, endOffset), paint);
+
+
 
       // Draw the user location marker on the map.
       canvas.drawCircle(
@@ -147,3 +152,4 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
+

@@ -92,6 +92,12 @@
       "languageVersion": "3.7"
     },
     {
+      "name": "flutter_compass",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_compass-0.7.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "flutter_launcher_icons",
       "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_launcher_icons-0.13.1",
       "packageUri": "lib/",
@@ -314,7 +320,7 @@
       "languageVersion": "3.7"
     }
   ],
-  "generated": "2025-04-16T07:24:09.635743Z",
+  "generated": "2025-04-16T08:28:00.136292Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter",

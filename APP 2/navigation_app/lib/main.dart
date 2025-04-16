@@ -4,6 +4,8 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter_compass/flutter_compass.dart';
+
 
 // Import game_screen.dart but hide MapScreen to avoid conflict.
 import 'package:navigation_app/game_screen.dart' hide MapScreen;
@@ -82,7 +84,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   // Flag to track connection status
   bool hasShownConnectedPopup = false;
 
-// ------------------- Start Scanning for Beacons -------------------
+
   void startScan() async {
     await _scanSubscription?.cancel();
     setState(() {
@@ -104,23 +106,39 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           scannedDevices[beaconId] = device.rssi;
           debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
 
-          // Show "Connected" only the first time you reach 3 beacons
+          // Trigger connected popup exactly once
           if (scannedDevices.length == 3 && !hasShownConnectedPopup) {
             hasShownConnectedPopup = true;
 
             showDialog(
               context: context,
               builder: (_) => AlertDialog(
-                title: const Text("Connected"),
-                content: const Text("Successfully connected to the event."),
+                backgroundColor: Colors.teal[50],
+                title: const Text(
+                  "Connected",
+                  style: TextStyle(color: kTealColor, fontWeight: FontWeight.bold),
+                ),
+                content: const Text(
+                  "Successfully connected to the event.",
+                  style: TextStyle(color: Colors.black87),
+                ),
                 actions: [
                   TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: kTealColor,
+                    ),
                     onPressed: () => Navigator.pop(context),
                     child: const Text("OK"),
-                  )
+                  ),
                 ],
               ),
             );
+          }
+
+          // Continuously estimate location whenever RSSI updates with at least 3 beacons
+          if (scannedDevices.length >= 3) {
+            estimateUserLocation(); // <-- Automatic location update
           }
         }
       }
@@ -131,36 +149,31 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
 
 
-  // ------------------- Get My Location Button -------------------
+
   void estimateUserLocation() {
     if (scannedDevices.length < 3) {
-      debugPrint("Not enough beacons scanned (${scannedDevices.length}). Using fallback location (5, 5).");
-      setState(() {
-        userLocation = "5, 5";
-      });
+      debugPrint("Not enough beacons for accurate location.");
       return;
     }
 
     final distances = <String, double>{};
     scannedDevices.forEach((id, rssi) {
-      double dist = estimateDistance(rssi, -59);
-      distances[id] = dist;
-      debugPrint("Beacon $id: RSSI = $rssi, estimated distance = $dist");
+      distances[id] = estimateDistance(rssi, -59);
     });
 
     final position = _trilaterate(distances);
     if (position != null) {
-      setState(() {
-        double x = position.x < 0 ? 0 : position.x;
-        double y = position.y < 0 ? 0 : position.y;
-        userLocation = "${x.round()}, ${y.round()}";
-      });
-      debugPrint("📍 Estimated location: $userLocation");
+      double x = position.x < 0 ? 0 : position.x;
+      double y = position.y < 0 ? 0 : position.y;
+      userLocation = "${x.round()}, ${y.round()}";
+      debugPrint("📍 [Auto-update] Current estimated location: $userLocation");
+
+      // Request path automatically when location updates and booth is selected
       if (selectedBooth.isNotEmpty) {
         requestPath(selectedBooth);
       }
     } else {
-      debugPrint("Trilateration returned null – check beacon data and txPower value.");
+      debugPrint("Trilateration failed.");
     }
   }
 
@@ -216,6 +229,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   // ------------------- Request Path -------------------
   Future<void> requestPath(String boothName) async {
     if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
+
     final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     try {
       final response = await http.post(
@@ -223,23 +237,19 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
+
       if (response.statusCode == 200) {
         final path = jsonDecode(response.body)["path"];
         setState(() {
           currentPath = List<List<dynamic>>.from(path);
         });
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text("Path to $boothName"),
-            content: path.isEmpty
-                ? Text("No path found.")
-                : Text(path.map<String>((p) => "(${p[0]}, ${p[1]})").join(" → ")),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))
-            ],
-          ),
-        );
+
+        // ✅ Print the path to the terminal only
+        if (path.isEmpty) {
+          debugPrint("⚠️ No path found to $boothName.");
+        } else {
+          debugPrint("🧭 Path to $boothName: ${path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")}");
+        }
       }
     } catch (e) {
       debugPrint("❌ Error requesting path: $e");
@@ -296,7 +306,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                color: Colors.grey[200],
+                  color: Colors.grey[200],
               ),
               child: DropdownButton<String>(
                 value: _selectedEvent.isEmpty ? _events[0] : _selectedEvent,
@@ -333,22 +343,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             ),
             const SizedBox(height: 12),
 
-            // 3) Get My Location (manually update location)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: estimateUserLocation,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kTealColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  textStyle: const TextStyle(fontSize: 16),
-                ),
-                child: const Text("Get My Location"),
-              ),
-            ),
-            const SizedBox(height: 12),
-
             // 4) Enter Booth Name (Autocomplete from backend)
             const Text(
               "Enter Booth Name:",
@@ -365,7 +359,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                     .contains(textEditingValue.text.toLowerCase()));
               },
               onSelected: (selection) {
-                setState(() => selectedBooth = selection);
+                setState(() {
+                  selectedBooth = selection;
+                });
+                requestPath(selection); // Automatically request path
               },
               fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
                 controller.text = selectedBooth;
@@ -399,25 +396,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   ),
                 );
               },
-            ),
-            const SizedBox(height: 12),
-
-            // 5) Find Path (update location then request path)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  estimateUserLocation();
-                  requestPath(selectedBooth);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kTealColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  textStyle: const TextStyle(fontSize: 16),
-                ),
-                child: const Text("Find Path"),
-              ),
             ),
             const SizedBox(height: 12),
 
