@@ -58,10 +58,13 @@ flutter_compass
 2.12
 file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_compass-0.7.0/
 file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_compass-0.7.0/lib/
+<<<<<<< Updated upstream
 flutter_launcher_icons
 2.18
 file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_launcher_icons-0.13.1/
 file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_launcher_icons-0.13.1/lib/
+=======
+>>>>>>> Stashed changes
 flutter_lints
 3.5
 file:///Users/carlotahuertas/.pub-cache/hosted/pub.dev/flutter_lints-5.0.0/

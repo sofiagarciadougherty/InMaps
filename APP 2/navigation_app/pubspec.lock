@@ -126,6 +126,7 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.0"
+<<<<<<< Updated upstream
   flutter_launcher_icons:
     dependency: "direct dev"
     description:
@@ -134,6 +135,8 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.13.1"
+=======
+>>>>>>> Stashed changes
   flutter_lints:
     dependency: "direct dev"
     description:
