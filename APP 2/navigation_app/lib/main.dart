@@ -5,9 +5,6 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 
-// Import the game screen from its separate file.
-import 'game_screen.dart';
-
 void main() => runApp(NavigationApp());
 
 class NavigationApp extends StatelessWidget {
@@ -57,8 +54,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     super.dispose();
   }
 
-  double estimateDistance(int rssi, int txPower) =>
-      pow(10, (txPower - rssi) / 20).toDouble();
+  double estimateDistance(int rssi, int txPower) => pow(10, (txPower - rssi) / 20).toDouble();
 
   void startScan() async {
     await _scanSubscription?.cancel();
@@ -83,30 +79,24 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   void estimateUserLocation() {
     final distances = <String, double>{};
-    scannedDevices.forEach((id, rssi) =>
-    distances[id] = estimateDistance(rssi, -59));
+    scannedDevices.forEach((id, rssi) => distances[id] = estimateDistance(rssi, -59));
     final position = trilaterate(distances, beaconIdToPosition);
     if (position != null) {
-      setState(
-              () => userLocation = "${position.x.round()}, ${position.y.round()}");
+      setState(() => userLocation = "${position.x.round()}, ${position.y.round()}");
       if (selectedBooth.isNotEmpty) requestPath(selectedBooth);
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: Text("Your Location"),
           content: Text("You are at: (${position.x.toStringAsFixed(1)}, ${position.y.toStringAsFixed(1)})"),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text("OK"))
-          ],
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))],
         ),
       );
     }
   }
 
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://128.61.115.73:8001/booths');
+    final url = Uri.parse('http://128.61.115.73:8000/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -121,35 +111,23 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   Future<void> requestPath(String boothName) async {
-    if (boothName.trim().isEmpty ||
-        userLocation.isEmpty ||
-        !userLocation.contains(",")) return;
-    final start =
-    userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     try {
       final response = await http.post(
-        Uri.parse('http://128.61.115.73:8001/path'),
+        Uri.parse('http://128.61.115.73:8000/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
       if (response.statusCode == 200) {
         final path = jsonDecode(response.body)["path"];
-        setState(() => currentPath =
-        List<List<dynamic>>.from(path));
+        setState(() => currentPath = List<List<dynamic>>.from(path));
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
             title: Text("Path to $boothName"),
-            content: path.isEmpty
-                ? Text("No path found.")
-                : Text(path
-                .map<String>((p) => "(${p[0]}, ${p[1]})")
-                .join(" → ")),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text("OK"))
-            ],
+            content: path.isEmpty ? Text("No path found.") : Text(path.map<String>((p) => "(${p[0]}, ${p[1]})").join(" → ")),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text("OK"))],
           ),
         );
       }
@@ -160,8 +138,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   void openMapScreen() {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
-    final start =
-    userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -176,79 +153,46 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       appBar: AppBar(title: Text("BLE Navigation")),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              ElevatedButton(
-                  onPressed: startScan, child: Text("Scan for Beacons")),
-              SizedBox(height: 16),
-              for (var entry in scannedDevices.entries)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Device ID: ${entry.key}"),
-                    Text("RSSI: ${entry.value}"),
-                  ],
+        child: Column(
+          children: [
+            ElevatedButton(onPressed: startScan, child: Text("Scan for Beacons")),
+            SizedBox(height: 16),
+            for (var entry in scannedDevices.entries)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Device ID: ${entry.key}"),
+                  Text("RSSI: ${entry.value}"),
+                ],
+              ),
+            if (scannedDevices.isNotEmpty)
+              ElevatedButton(onPressed: estimateUserLocation, child: Text("Get My Location")),
+            if (userLocation.isNotEmpty) ...[
+              SizedBox(height: 20),
+              RawAutocomplete<String>(
+                optionsBuilder: (textEditingValue) => textEditingValue.text.isEmpty ? const Iterable<String>.empty() : boothNames.where((option) => option.toLowerCase().contains(textEditingValue.text.toLowerCase())),
+                onSelected: (selection) => setState(() => selectedBooth = selection),
+                fieldViewBuilder: (context, controller, focusNode, _) => TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(labelText: 'Enter booth name'),
+                  onChanged: (value) => selectedBooth = value,
                 ),
-              if (scannedDevices.isNotEmpty)
-                ElevatedButton(
-                    onPressed: estimateUserLocation,
-                    child: Text("Get My Location")),
-              if (userLocation.isNotEmpty) ...[
-                SizedBox(height: 20),
-                RawAutocomplete<String>(
-                  optionsBuilder: (textEditingValue) =>
-                  textEditingValue.text.isEmpty
-                      ? const Iterable<String>.empty()
-                      : boothNames.where((option) => option
-                      .toLowerCase()
-                      .contains(textEditingValue.text.toLowerCase())),
-                  onSelected: (selection) =>
-                      setState(() => selectedBooth = selection),
-                  fieldViewBuilder: (context, controller, focusNode, _) =>
-                      TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        decoration:
-                        InputDecoration(labelText: 'Enter booth name'),
-                        onChanged: (value) => selectedBooth = value,
-                      ),
-                  optionsViewBuilder: (context, onSelected, options) => Material(
-                    elevation: 4.0,
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      children: options
-                          .map((option) => ListTile(
-                          title: Text(option),
-                          onTap: () => onSelected(option)))
-                          .toList(),
-                    ),
+                optionsViewBuilder: (context, onSelected, options) => Material(
+                  elevation: 4.0,
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    children: options.map((option) => ListTile(title: Text(option), onTap: () => onSelected(option))).toList(),
                   ),
                 ),
-                SizedBox(height: 10),
-                ElevatedButton(
-                    onPressed: () => requestPath(selectedBooth),
-                    child: Text("Find Path")),
-              ],
-              SizedBox(height: 20),
-              ElevatedButton(
-                  onPressed: openMapScreen,
-                  child: Text("Show Map")),
-              SizedBox(height: 20),
-              // New button that navigates to the Game Mode
-              ElevatedButton(
-                onPressed: () async {
-                  await _scanSubscription?.cancel(); // Cancel the scan
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GameScreen()),
-                  );
-                },
-                child: Text("Go to Game Mode"),
-              )
+              ),
+              SizedBox(height: 10),
+              ElevatedButton(onPressed: () => requestPath(selectedBooth), child: Text("Find Path")),
             ],
-          ),
+            SizedBox(height: 20),
+            ElevatedButton(onPressed: openMapScreen, child: Text("Show Map")),
+          ],
         ),
       ),
     );
@@ -267,12 +211,15 @@ Vector2D? trilaterate(Map<String, double> d, Map<String, List<int>> p) {
   final p2 = Vector2D(p[keys[1]]![0].toDouble(), p[keys[1]]![1].toDouble());
   final p3 = Vector2D(p[keys[2]]![0].toDouble(), p[keys[2]]![1].toDouble());
   final r1 = d[keys[0]]!, r2 = d[keys[1]]!, r3 = d[keys[2]]!;
+
   final A = 2 * (p2.x - p1.x), B = 2 * (p2.y - p1.y);
   final C = r1 * r1 - r2 * r2 - p1.x * p1.x + p2.x * p2.x - p1.y * p1.y + p2.y * p2.y;
   final D = 2 * (p3.x - p2.x), E = 2 * (p3.y - p2.y);
   final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
+
   final denom = A * E - B * D;
   if (denom.abs() < 1e-6) return null;
+
   final x = (C * E - B * F) / denom;
   final y = (A * F - C * D) / denom;
   return Vector2D(x, y);
@@ -300,56 +247,21 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     fetchMapData();
   }
-  Map<String, dynamic>? _findTappedBooth(Offset tapPosition) {
-    for (var el in elements) {
-      final start = el["start"];
-      final end = el["end"];
-      final rect = Rect.fromPoints(
-        Offset(start["x"].toDouble(), start["y"].toDouble()),
-        Offset(end["x"].toDouble(), end["y"].toDouble()),
-      );
-      if (rect.contains(tapPosition) && el["type"] == "booth") {
-        return el;
-      }
-    }
-    return null;
-  }
-
-  void _showBoothPopup(Map<String, dynamic> booth) {
-    final name = booth["name"];
-    final description = booth["description"] ?? "No description available.";
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(name),
-        content: Text(description),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("Close"),
-          )
-        ],
-      ),
-    );
-  }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://128.61.115.73:8001/map-data");
+    final url = Uri.parse("http://128.61.115.73:8000/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
         final fetchedElements = json["elements"];
+        // Compute bounds.
         double maxXLocal = 0, maxYLocal = 0;
         for (var el in fetchedElements) {
           final start = el["start"];
           final end = el["end"];
-          maxXLocal = [start["x"], end["x"], maxXLocal]
-              .reduce((a, b) => a > b ? a : b)
-              .toDouble();
-          maxYLocal = [start["y"], end["y"], maxYLocal]
-              .reduce((a, b) => a > b ? a : b)
-              .toDouble();
+          maxXLocal = [start["x"], end["x"], maxXLocal].reduce((a, b) => a > b ? a : b).toDouble();
+          maxYLocal = [start["y"], end["y"], maxYLocal].reduce((a, b) => a > b ? a : b).toDouble();
         }
         setState(() {
           elements = fetchedElements;
@@ -371,25 +283,17 @@ class _MapScreenState extends State<MapScreen> {
       body: elements.isEmpty
           ? Center(child: CircularProgressIndicator())
           : InteractiveViewer(
-        minScale: 0.2,
-        maxScale: 5.0,
-        boundaryMargin: EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          child: GestureDetector(
-            onTapDown: (details) {
-              final tapped = _findTappedBooth(details.localPosition);
-              if (tapped != null) {
-                _showBoothPopup(tapped);
-              }
-            },
-            child: CustomPaint(
-              painter: MapPainter(elements, widget.path, widget.startLocation),
+              minScale: 0.2,
+              maxScale: 5.0,
+              boundaryMargin: EdgeInsets.all(1000),
+              child: Container(
+                width: maxX,
+                height: maxY,
+                child: CustomPaint(
+                  painter: MapPainter(elements, widget.path, widget.startLocation),
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -424,6 +328,11 @@ class MapPainter extends CustomPainter {
         (start["x"] + end["x"]) / 2,
         (start["y"] + end["y"]) / 2,
       );
+
+      if (name.toLowerCase().contains("bathroom")) {
+        debugPrint("🛁 Drawing bathroom at $startOffset to $endOffset");
+      }
+
       Paint paint;
       if (type == "blocker") {
         paint = paintBlocker;
@@ -432,12 +341,14 @@ class MapPainter extends CustomPainter {
       } else {
         paint = paintOther;
       }
+
       canvas.drawRect(Rect.fromPoints(startOffset, endOffset), paint);
       canvas.drawCircle(
         Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize),
         6,
         paintUser,
       );
+
       final span = TextSpan(text: name, style: textStyle);
       final tp = TextPainter(
         text: span,
@@ -447,6 +358,7 @@ class MapPainter extends CustomPainter {
       tp.layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
+
     if (path.isNotEmpty) {
       for (int i = 0; i < path.length - 1; i++) {
         final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
@@ -459,5 +371,4 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
-
 
