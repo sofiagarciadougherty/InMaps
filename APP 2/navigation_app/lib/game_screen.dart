@@ -157,7 +157,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   // ---------------- Fetch Tasks ----------------
   Future<void> _fetchTasks() async {
-    final url = Uri.parse('http://128.61.115.73:8001/booths');
+    final url = Uri.parse('http://143.215.53.49:8001/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {

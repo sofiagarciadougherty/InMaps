@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 
-// Import the game screen from its separate file.
 import 'game_screen.dart';
+import 'ble_scanner_service.dart';
 
 void main() => runApp(NavigationApp());
 
@@ -32,126 +31,92 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   String selectedBooth = "";
   List<String> boothNames = [];
   List<List<dynamic>> currentPath = [];
-
-  final Map<String, List<int>> beaconIdToPosition = {
-    "14j906Gy": [0, 0],
-    "14jr08Ef": [200, 0],
-    "14j606Gv": [0, 200],
-  };
-
-  final flutterReactiveBle = FlutterReactiveBle();
-  StreamSubscription<DiscoveredDevice>? _scanSubscription;
+  Timer? locationUpdateTimer;
+  final ValueNotifier<List<int>> liveLocation = ValueNotifier([0, 0]);
+  final BLEScannerService bleService = BLEScannerService();
 
   @override
   void initState() {
     super.initState();
-    flutterReactiveBle.statusStream.listen((status) {
-      print("Bluetooth status: $status");
-    });
+    startScan();
     fetchBoothNames();
+    locationUpdateTimer = Timer.periodic(Duration(seconds: 3), (_) {
+      if (scannedDevices.length >= 3) {
+        estimateUserLocation();
+      }
+    });
   }
 
   @override
   void dispose() {
-    _scanSubscription?.cancel();
+    bleService.stopScan();
+    locationUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  void startScan() {
+    bleService.startScan((id, rssi) {
+      setState(() {
+        scannedDevices[id] = rssi;
+        print("📶 Updated $id with RSSI $rssi");
+      });
+    });
   }
 
   double estimateDistance(int rssi, int txPower) =>
       pow(10, (txPower - rssi) / 20).toDouble();
 
-  void startScan() async {
-    await _scanSubscription?.cancel();
-    setState(() => scannedDevices.clear());
-
-    _scanSubscription = flutterReactiveBle.scanForDevices(
-      withServices: [],
-      scanMode: ScanMode.lowLatency,
-    ).listen((device) {
-      if (device.name.toLowerCase() == "kontakt" &&
-          device.serviceData.containsKey(Uuid.parse("FE6A"))) {
-        final rawData = device.serviceData[Uuid.parse("FE6A")]!;
-        final asciiBytes = rawData.sublist(13);
-        final beaconId = String.fromCharCodes(asciiBytes);
-
-        if (beaconIdToPosition.containsKey(beaconId)) {
-          setState(() => scannedDevices[beaconId] = device.rssi);
-        }
-      }
-    }, onError: (error) => print("❌ Scan error: $error"));
-  }
-
   void estimateUserLocation() {
     final distances = <String, double>{};
-    scannedDevices.forEach((id, rssi) =>
-    distances[id] = estimateDistance(rssi, -59));
-    final position = trilaterate(distances, beaconIdToPosition);
+    scannedDevices.forEach((id, rssi) {
+      distances[id] = estimateDistance(rssi, -59);
+    });
+
+    final position = trilaterate(distances, bleService.beaconIdToPosition);
     if (position != null) {
-      setState(
-              () => userLocation = "${position.x.round()}, ${position.y.round()}");
-      if (selectedBooth.isNotEmpty) requestPath(selectedBooth);
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text("Your Location"),
-          content: Text("You are at: (${position.x.toStringAsFixed(1)}, ${position.y.toStringAsFixed(1)})"),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text("OK"))
-          ],
-        ),
-      );
+      setState(() {
+        userLocation = "${position.x.round()}, ${position.y.round()}";
+        liveLocation.value = [position.x ~/ 50, position.y ~/ 50];
+      });
+
+      if (selectedBooth.isNotEmpty) {
+        requestPath(selectedBooth);
+      }
+
+      print("📍 You are at: (${position.x.toStringAsFixed(1)}, ${position.y.toStringAsFixed(1)})");
     }
   }
 
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://128.61.115.73:8001/booths');
+    final url = Uri.parse('http://143.215.53.49:8001/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        final List<dynamic> booths = jsonDecode(response.body);
+        final booths = jsonDecode(response.body);
         setState(() {
-          boothNames = booths.map((b) => b["name"] as String).toList();
+          boothNames = List<String>.from(booths.map((b) => b["name"]));
         });
       }
     } catch (e) {
-      print("❌ Exception while fetching booth list: $e");
+      print("❌ Error fetching booth names: $e");
     }
   }
 
   Future<void> requestPath(String boothName) async {
-    if (boothName.trim().isEmpty ||
-        userLocation.isEmpty ||
-        !userLocation.contains(",")) return;
-    final start =
-    userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+
     try {
       final response = await http.post(
-        Uri.parse('http://128.61.115.73:8001/path'),
+        Uri.parse('http://143.215.53.49:8001/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
+
       if (response.statusCode == 200) {
         final path = jsonDecode(response.body)["path"];
-        setState(() => currentPath =
-        List<List<dynamic>>.from(path));
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text("Path to $boothName"),
-            content: path.isEmpty
-                ? Text("No path found.")
-                : Text(path
-                .map<String>((p) => "(${p[0]}, ${p[1]})")
-                .join(" → ")),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text("OK"))
-            ],
-          ),
-        );
+        setState(() => currentPath = List<List<dynamic>>.from(path));
+        print("📍 Path to $boothName: ${path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")}");
       }
     } catch (e) {
       print("❌ Error requesting path: $e");
@@ -160,12 +125,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   void openMapScreen() {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
-    final start =
-    userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => MapScreen(path: currentPath, startLocation: start),
+        builder: (_) => MapScreen(
+          path: currentPath,
+          startLocation: start,
+          startLocationNotifier: liveLocation,
+          onStartScan: startScan,
+        ),
       ),
     );
   }
@@ -179,71 +149,50 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              ElevatedButton(
-                  onPressed: startScan, child: Text("Scan for Beacons")),
-              SizedBox(height: 16),
-              for (var entry in scannedDevices.entries)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Device ID: ${entry.key}"),
-                    Text("RSSI: ${entry.value}"),
-                  ],
-                ),
+              ElevatedButton(onPressed: startScan, child: Text("Scan for Beacons")),
+              ...scannedDevices.entries.map((e) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Device ID: ${e.key}"),
+                  Text("RSSI: ${e.value}"),
+                ],
+              )),
               if (scannedDevices.isNotEmpty)
-                ElevatedButton(
-                    onPressed: estimateUserLocation,
-                    child: Text("Get My Location")),
+                ElevatedButton(onPressed: estimateUserLocation, child: Text("Get My Location")),
               if (userLocation.isNotEmpty) ...[
                 SizedBox(height: 20),
                 RawAutocomplete<String>(
-                  optionsBuilder: (textEditingValue) =>
-                  textEditingValue.text.isEmpty
-                      ? const Iterable<String>.empty()
-                      : boothNames.where((option) => option
-                      .toLowerCase()
-                      .contains(textEditingValue.text.toLowerCase())),
-                  onSelected: (selection) =>
-                      setState(() => selectedBooth = selection),
-                  fieldViewBuilder: (context, controller, focusNode, _) =>
-                      TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        decoration:
-                        InputDecoration(labelText: 'Enter booth name'),
-                        onChanged: (value) => selectedBooth = value,
-                      ),
+                  optionsBuilder: (textEditingValue) => boothNames.where((option) =>
+                      option.toLowerCase().contains(textEditingValue.text.toLowerCase())),
+                  onSelected: (selection) => setState(() => selectedBooth = selection),
+                  fieldViewBuilder: (context, controller, focusNode, _) => TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(labelText: 'Enter booth name'),
+                    onChanged: (value) => selectedBooth = value,
+                  ),
                   optionsViewBuilder: (context, onSelected, options) => Material(
                     elevation: 4.0,
                     child: ListView(
                       padding: EdgeInsets.zero,
                       shrinkWrap: true,
-                      children: options
-                          .map((option) => ListTile(
-                          title: Text(option),
-                          onTap: () => onSelected(option)))
-                          .toList(),
+                      children: options.map((option) => ListTile(
+                        title: Text(option),
+                        onTap: () => onSelected(option),
+                      )).toList(),
                     ),
                   ),
                 ),
                 SizedBox(height: 10),
-                ElevatedButton(
-                    onPressed: () => requestPath(selectedBooth),
-                    child: Text("Find Path")),
+                ElevatedButton(onPressed: () => requestPath(selectedBooth), child: Text("Find Path")),
               ],
               SizedBox(height: 20),
-              ElevatedButton(
-                  onPressed: openMapScreen,
-                  child: Text("Show Map")),
+              ElevatedButton(onPressed: openMapScreen, child: Text("Show Map")),
               SizedBox(height: 20),
-              // New button that navigates to the Game Mode
               ElevatedButton(
                 onPressed: () async {
-                  await _scanSubscription?.cancel(); // Cancel the scan
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GameScreen()),
-                  );
+                  bleService.stopScan();
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const GameScreen()));
                 },
                 child: Text("Go to Game Mode"),
               )
@@ -285,7 +234,9 @@ Vector2D? trilaterate(Map<String, double> d, Map<String, List<int>> p) {
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
   final List<int> startLocation;
-  MapScreen({required this.path, required this.startLocation});
+  final ValueNotifier<List<int>> startLocationNotifier;
+  final VoidCallback onStartScan;
+  MapScreen({required this.path,required this.startLocation,required this.startLocationNotifier, required this.onStartScan,});
   @override
   _MapScreenState createState() => _MapScreenState();
 }
@@ -294,10 +245,17 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> elements = [];
   double maxX = 0;
   double maxY = 0;
+  List<int> currentLocation = [0, 0];
 
   @override
   void initState() {
     super.initState();
+    widget.onStartScan();
+    widget.startLocationNotifier.addListener(() {
+        setState(() {
+          currentLocation = widget.startLocationNotifier.value;
+        });
+      });
     fetchMapData();
   }
   Map<String, dynamic>? _findTappedBooth(Offset tapPosition) {
@@ -334,7 +292,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://128.61.115.73:8001/map-data");
+    final url = Uri.parse("http://143.215.53.49:8001/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -385,7 +343,7 @@ class _MapScreenState extends State<MapScreen> {
               }
             },
             child: CustomPaint(
-              painter: MapPainter(elements, widget.path, widget.startLocation),
+              painter: MapPainter(elements, widget.path, currentLocation),
             ),
           ),
         ),
@@ -398,7 +356,7 @@ class MapPainter extends CustomPainter {
   final List<dynamic> elements;
   final List<List<dynamic>> path;
   final List<int> startLocation;
-  static const double cellSize = 50.0;
+  static const double cellSize = 5.0;
 
   MapPainter(this.elements, this.path, this.startLocation);
 
@@ -459,5 +417,7 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
+
+
 
 
