@@ -311,7 +311,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               startLocation: start,
             ),
           ),
-        );
+        ).then((_) {
+          // Reset the task's completed state to allow repeated navigation.
+          setState(() {
+            task["completed"] = false;
+          });
+        });
         debugPrint("Navigator.push() called");
       } else {
         debugPrint("Non-200 status code: ${response.statusCode}");
