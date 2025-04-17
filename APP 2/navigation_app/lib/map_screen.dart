@@ -39,7 +39,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> fetchMapData() async {
-    final url = Uri.parse("http://143.215.53.49:8001/map-data");
+    final url = Uri.parse("https://inmaps.onrender.com/map-data");
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
