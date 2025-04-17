@@ -239,3 +239,7 @@ def a_star(start, goal):
                         ))
 
     return []
+    
+@app.get("/")
+def root():
+    return {"message": "InMaps backend is running!"}
