@@ -10,7 +10,7 @@ import ast
 
 app = FastAPI()
 
-CSV_PATH = "poi_coordinates.csv"
+CSV_PATH = "booth_coordinates.csv"
 
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)

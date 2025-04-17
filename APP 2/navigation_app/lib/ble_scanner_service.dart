@@ -1,11 +1,6 @@
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'dart:async';
 
-const double metersPerCell = 0.5;
-const double pixelsPerMeter = 50.0;
-const double cellSize = metersPerCell * pixelsPerMeter;
-
-
 class BLEScannerService {
   static final BLEScannerService _instance = BLEScannerService._internal();
   factory BLEScannerService() => _instance;
@@ -16,11 +11,10 @@ class BLEScannerService {
   final Map<String, int> scannedDevices = {};
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
 
-  // Beacon positions in METERS now
-  final Map<String, List<double>> beaconIdToPosition = {
-    "14j906Gy": [0.0, 25.0],
-    "14jr08Ef": [8.66, 15.0],
-    "14j606Gv": [0.0, 0.0],
+  final Map<String, List<int>> beaconIdToPosition = {
+    "14j906Gy": [0, 0],
+    "14jr08Ef": [200, 0],
+    "14j606Gv": [0, 200],
   };
 
   void startScan(Function(String, int) onUpdate) {
@@ -41,7 +35,7 @@ class BLEScannerService {
           onUpdate(beaconId, device.rssi);
         }
       }
-    }, onError: (e) => print("❌ Scan error: \$e"));
+    }, onError: (e) => print("❌ Scan error: $e"));
   }
 
   void stopScan() {
