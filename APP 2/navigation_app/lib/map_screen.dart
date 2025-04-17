@@ -1,17 +1,22 @@
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
+import 'package:sensors_plus/sensors_plus.dart';
 
+class Vector2D {
+  final double x, y;
+  Vector2D(this.x, this.y);
+}
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
   final List<int> startLocation;
   final double headingDegrees;
-  MapScreen({required this.path, required this.startLocation,
-  required this.headingDegrees});
+  MapScreen({required this.path, required this.startLocation, required this.headingDegrees});
 
   @override
   _MapScreenState createState() => _MapScreenState();
@@ -23,17 +28,45 @@ class _MapScreenState extends State<MapScreen> {
   double maxY = 0;
 
   double currentHeading = 0.0;
+  double headingRadians = 0.0;
   StreamSubscription<CompassEvent>? _headingSub;
+  StreamSubscription<AccelerometerEvent>? _accelSub;
+
+  Vector2D imuOffset = Vector2D(0, 0);
+  int stepCount = 0;
+
+  Offset basePosition = Offset.zero;
+  static const double cellSize = 50.0;
 
   @override
   void initState() {
     super.initState();
+
+    basePosition = Offset(
+      (widget.startLocation[0] + 0.5) * cellSize,
+      (widget.startLocation[1] + 0.5) * cellSize,
+    );
+
     fetchMapData();
+
     _headingSub = FlutterCompass.events?.listen((event) {
       if (event.heading != null) {
         setState(() {
           currentHeading = event.heading!;
+          headingRadians = currentHeading * pi / 180;
         });
+      }
+    });
+
+    _accelSub = accelerometerEvents.listen((event) {
+      double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      if (magnitude > 12) {
+        stepCount++;
+        imuOffset = Vector2D(
+          imuOffset.x + cos(headingRadians) * 10,
+          imuOffset.y + sin(headingRadians) * 10,
+        );
+        print("🦶 Step \$stepCount → IMU Offset: (\${imuOffset.x.toStringAsFixed(2)}, \${imuOffset.y.toStringAsFixed(2)})");
       }
     });
   }
@@ -58,16 +91,17 @@ class _MapScreenState extends State<MapScreen> {
           maxY = maxYLocal + 100;
         });
       } else {
-        print("❌ Failed to fetch map data. Status: ${response.statusCode}");
+        print("❌ Failed to fetch map data. Status: \${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Map fetch failed: $e");
+      print("❌ Map fetch failed: \$e");
     }
   }
 
   @override
   void dispose() {
     _headingSub?.cancel();
+    _accelSub?.cancel();
     super.dispose();
   }
 
@@ -78,39 +112,46 @@ class _MapScreenState extends State<MapScreen> {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : InteractiveViewer(
-              minScale: 0.2,
-              maxScale: 5.0,
-              boundaryMargin: const EdgeInsets.all(1000),
-              child: Container(
-                width: maxX,
-                height: maxY,
-                child: CustomPaint(
-                  painter: MapPainter(
-                    elements,
-                    widget.path,
-                    widget.startLocation,
-                    currentHeading, // ✅ use dynamic heading here
-                  ),
-                ),
-              ),
+        minScale: 0.2,
+        maxScale: 5.0,
+        boundaryMargin: const EdgeInsets.all(1000),
+        child: Container(
+          width: maxX,
+          height: maxY,
+          child: CustomPaint(
+            painter: MapPainter(
+              elements,
+              widget.path,
+              basePosition,
+              currentHeading,
+              imuOffset,
             ),
+          ),
+        ),
+      ),
     );
   }
 }
 
-
 class MapPainter extends CustomPainter {
   final List<dynamic> elements;
   final List<List<dynamic>> path;
-  final List<int> startLocation;
-  static const double cellSize = 50.0;
+  final Offset basePosition;
   final double headingDegrees;
+  final Vector2D imuOffset;
 
-  MapPainter(this.elements, this.path, this.startLocation, this.headingDegrees);
+  static const double cellSize = 50.0;
+
+  MapPainter(
+      this.elements,
+      this.path,
+      this.basePosition,
+      this.headingDegrees,
+      this.imuOffset,
+      );
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Define Paint objects for different element types.
     final paintBooth = Paint()..color = Colors.green.withOpacity(0.6);
     final paintBlocker = Paint()..color = Colors.red.withOpacity(0.6);
     final paintOther = Paint()..color = Colors.blueGrey.withOpacity(0.5);
@@ -123,7 +164,6 @@ class MapPainter extends CustomPainter {
       ..color = Colors.blue.withOpacity(0.2)
       ..style = PaintingStyle.fill;
 
-    // Draw each element from the map data.
     for (var el in elements) {
       final start = el["start"];
       final end = el["end"];
@@ -147,16 +187,6 @@ class MapPainter extends CustomPainter {
 
       canvas.drawRect(Rect.fromPoints(startOffset, endOffset), paint);
 
-
-
-      // Draw the user location marker on the map.
-      canvas.drawCircle(
-        Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize),
-        6,
-        paintUser,
-      );
-
-      // Draw the name of the element at its center.
       final span = TextSpan(text: name, style: textStyle);
       final tp = TextPainter(
         text: span,
@@ -166,12 +196,16 @@ class MapPainter extends CustomPainter {
       tp.layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
-    
-    // Draw translucent direction cone
-    final userCenter = Offset((startLocation[0] + 0.5) * cellSize, (startLocation[1] + 0.5) * cellSize);
-    const double coneLength = 80.0;
-    const double coneAngle = pi / 6; // 30 degrees
 
+    final userCenter = Offset(
+      basePosition.dx + imuOffset.x,
+      basePosition.dy + imuOffset.y,
+    );
+
+    canvas.drawCircle(userCenter, 6, paintUser);
+
+    const double coneLength = 80.0;
+    const double coneAngle = pi / 6;
     final headingRadians = headingDegrees * pi / 180;
     final angle1 = headingRadians - coneAngle;
     final angle2 = headingRadians + coneAngle;
@@ -187,8 +221,6 @@ class MapPainter extends CustomPainter {
 
     canvas.drawPath(conePath, paintCone);
 
-
-    // Draw the path if available.
     if (path.isNotEmpty) {
       for (int i = 0; i < path.length - 1; i++) {
         final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
@@ -201,4 +233,3 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
-
