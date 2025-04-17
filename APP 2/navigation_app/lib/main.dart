@@ -212,7 +212,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Fetch Booth Names from Backend -------------------
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('http://143.215.53.49:8001/booths');
+    final url = Uri.parse('https://inmaps.onrender.com/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -233,7 +233,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     try {
       final response = await http.post(
-        Uri.parse('http://143.215.53.49:8001/path'),
+        Uri.parse('https://inmaps.onrender.com/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
