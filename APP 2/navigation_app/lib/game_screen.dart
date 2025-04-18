@@ -1,4 +1,3 @@
-import 'package:navigation_app/models/vector2d.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -14,7 +13,10 @@ import 'package:sensors_plus/sensors_plus.dart';
 int globalTotalPoints = 0;
 
 /// A simple 2D vector class used for trilateration.
-
+class Vector2D {
+  final double x, y;
+  Vector2D(this.x, this.y);
+}
 
 class GameScreen extends StatefulWidget {
   const GameScreen({Key? key}) : super(key: key);

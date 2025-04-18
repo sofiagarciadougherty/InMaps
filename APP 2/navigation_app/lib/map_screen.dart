@@ -1,4 +1,4 @@
-import 'package:navigation_app/models/vector2d.dart';
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -7,7 +7,10 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
 
-
+class Vector2D {
+  final double x, y;
+  Vector2D(this.x, this.y);
+}
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;

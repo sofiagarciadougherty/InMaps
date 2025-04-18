@@ -12,24 +12,79 @@ app = FastAPI()
 
 CSV_PATH = "booth_coordinates.csv"
 
-@app.on_event("startup")
-
 def load_booth_data(csv_path):
-    import pandas as pd
     df = pd.read_csv(csv_path)
     booths = []
+    print("📦 Loading booths from CSV...")
+
     for _, row in df.iterrows():
-        booth = {
-            "name": row["Name"],
-            "description": row["Description"],
-            "type": "booth",  # Adjust if needed
+        coord_cell = row["Coordinates"]
+        if not isinstance(coord_cell, str):
+            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
+            continue
+        try:
+            coords = json.loads(coord_cell.replace('\"', '"'))
+            center = ast.literal_eval(row["Center Coordinates"])
+        except Exception as e:
+            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
+            continue
+
+        if "blocker" in row["Name"].lower():
+            booth_type = "blocker"
+        elif "booth" in row["Name"].lower():
+            booth_type = "booth"
+        else:
+            booth_type = "other"  # default/fallback for stuff like bathroom
+
+        name = row["Name"].strip()
+
+        print(f"✅ Loaded booth: {name} ({booth_type})")
+
+        booths.append({
+            "booth_id": int(row["Booth ID"]),
+            "name": name,
+            "type": booth_type,
             "area": {
-                "start": {"x": int(row["Start_X"]), "y": int(row["Start_Y"])},
-                "end": {"x": int(row["End_X"]), "y": int(row["End_Y"])}
-            }
-        }
-        booths.append(booth)
+                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
+                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
+            },
+            "center": {"x": center[0], "y": center[1]}
+        })
+    print(f"📊 Total booths loaded: {len(booths)}")
     return booths
+
+def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
+    df = pd.read_csv(csv_path)
+    grid_width = canvas_width // grid_size
+    grid_height = canvas_height // grid_size
+    venue_grid = np.ones((grid_height, grid_width), dtype=int)
+
+    for _, row in df.iterrows():
+        coord_cell = row["Coordinates"]
+        if not isinstance(coord_cell, str):
+            continue
+        try:
+            coords = json.loads(coord_cell.replace('\"', '"'))
+        except Exception:
+            continue
+
+        # Mark all types as obstacles
+        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
+            start_px_x = int(coords["start"]["x"])
+            start_px_y = int(coords["start"]["y"])
+            end_px_x = int(coords["end"]["x"])
+            end_px_y = int(coords["end"]["y"])
+
+            for px_x in range(start_px_x, end_px_x + 1):
+                for px_y in range(start_px_y, end_px_y + 1):
+                    gx = px_x // grid_size
+                    gy = px_y // grid_size
+
+                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
+                        venue_grid[gy][gx] = 0
+
+
+    return venue_grid.tolist()
 
 
 booth_data = load_booth_data(CSV_PATH)
@@ -126,8 +181,8 @@ def get_path(request: PathRequest):
 
 
 @app.get("/booths")
-def get_booths():
-    return JSONResponse(content=booth_data)
+def get_all_booths():
+    return booth_data
 
 @app.get("/booths/{booth_id}")
 def get_booth_by_id(booth_id: int):
@@ -136,7 +191,17 @@ def get_booth_by_id(booth_id: int):
 
 @app.get("/map-data")
 def get_map_data():
-    return JSONResponse(content={"elements": booth_data})
+    visual_elements = []
+
+    for booth in booth_data:
+        visual_elements.append({
+            "name": booth["name"],
+            "type": booth["type"],
+            "start": booth["area"]["start"],
+            "end": booth["area"]["end"]
+        })
+
+    return JSONResponse(content={"elements": visual_elements})
 
 # ====== A* Algorithm ======
 def a_star(start, goal):
