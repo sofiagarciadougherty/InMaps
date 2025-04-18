@@ -14,9 +14,9 @@ app = FastAPI()
 CSV_PATH = "booth_coordinates.csv"
 
 # Add calibration constants
-CELL_SIZE = 50  # pixels per grid cell
+CELL_SIZE = 40  # pixels per grid cell
 # Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 2.0  # 1 meter = 2 grid units by default
+METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
@@ -124,11 +124,11 @@ BEACON_MAC_MAP = {
 MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
 
 # Beacon positions (using iOS IDs for consistency with frontend)
-BEACON_POSITIONS = {
-    "14j906Gy": (0, 0),
-    "14jr08Ef": (1, 0),
-    "14j606Gv": (0, 1)
-}
+# BEACON_POSITIONS = {
+#     "14j906Gy": (0, 0),
+#     "14jr08Ef": (1, 0),
+#     "14j606Gv": (0, 1)
+# }
 
 # ====== Models ======
 class BLEReading(BaseModel):

@@ -2,13 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import '../models/beacon.dart';
 import './positioning.dart';
-
-class Vector2D {
-  final double x;
-  final double y;
-
-  Vector2D(this.x, this.y);
-}
+import './vector2d.dart';
 
 class SmoothedPositionTracker {
   // Configuration properties

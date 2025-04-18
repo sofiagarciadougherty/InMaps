@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../models/beacon.dart';
+import './vector2d.dart';
 
 /// Converts RSSI value to physical distance in meters
 double rssiToDistance(int rssi, int txPower, {double pathLossExponent = 2.0}) {

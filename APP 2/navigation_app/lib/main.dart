@@ -6,13 +6,14 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:io' show Platform;
-
+// carlota 
 // Import game_screen.dart but hide MapScreen to avoid conflict.
-import 'package:navigation_app/game_screen.dart' hide MapScreen;
-import 'package:navigation_app/map_screen.dart';
-import 'package:navigation_app/models/beacon.dart';
-import 'package:navigation_app/utils/positioning.dart';
-import 'package:navigation_app/utils/smoothed_position.dart';
+import './game_screen.dart' hide MapScreen;
+import './map_screen.dart';
+import './models/beacon.dart';
+import './utils/positioning.dart';
+import './utils/smoothed_position.dart';
+import './utils/vector2d.dart';
 
 // Choose a teal color for buttons.
 const Color kTealColor = Color(0xFF008C9E);
@@ -147,6 +148,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     // Update the position tracker with new beacon data
     positionTracker.updateBeacons(beaconList);
     positionTracker.updateCalibration(metersToGridFactor);
+    
+    // Add debug logging
+    if (beaconList.isNotEmpty) {
+      debugPrint("🔍 Current beacons: ${beaconList.map((b) => '${b.id}: (${b.position?.x}, ${b.position?.y})').join(', ')}");
+    }
   }
 
   // Fetch configuration from backend
@@ -399,8 +405,12 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   void openMapScreen() async {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
-    final heading = await FlutterCompass.events!.first; // One-time heading fetch
+    // Convert the current position to grid coordinates
+    final gridX = (currentPosition.x / gridCellSize).round();
+    final gridY = (currentPosition.y / gridCellSize).round();
+    final start = [gridX, gridY];
+    
+    final heading = await FlutterCompass.events!.first;
 
     Navigator.push(
       context,
@@ -409,6 +419,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           path: currentPath,
           startLocation: start,
           headingDegrees: heading.heading ?? 0.0,
+          initialPosition: currentPosition,
         ),
       ),
     );
