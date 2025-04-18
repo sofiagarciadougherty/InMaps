@@ -63,6 +63,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   int gridCellSize = 50;
   int pixelsPerMeter = 40;
   bool isConfigLoaded = false;
+  
+  // Calibration variables - still needed for conversion but not exposed in UI
+  double metersToGridFactor = 2.0;  // Default, will be updated from backend
+  int txPower = -59;  // Default reference power at 1m
 
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
@@ -110,12 +114,14 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             mac_to_id_map[mac] = id;
           });
           
-          // Parse scale factors
+          // Parse scale factors and calibration values
           gridCellSize = data['gridCellSize'] ?? 50;
-          pixelsPerMeter = data['pixelsPerMeter'] ?? 40;
+          metersToGridFactor = (data['metersToGridFactor'] ?? 2.0).toDouble();
+          txPower = data['txPower'] ?? -59;
           
           isConfigLoaded = true;
           debugPrint("✅ Configuration loaded from backend");
+          debugPrint("📏 Meters to Grid Factor: $metersToGridFactor");
         });
       } else {
         debugPrint("❌ Failed to load configuration: ${response.statusCode}");
@@ -166,13 +172,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         mac_to_id_map[mac] = id;
       });
       
+      metersToGridFactor = 2.0; // Default value
+      txPower = -59; // Default reference power at 1m
+      
       isConfigLoaded = true;
       debugPrint("⚠️ Using default configuration");
     });
   }
 
+  // Update the way we estimate distance using the proper path loss model
   double estimateDistance(int rssi, int txPower) =>
-      pow(10, (txPower - rssi) / 20).toDouble();
+      pow(10, (txPower - rssi) / (10 * 2.0)).toDouble();  // Using path loss exponent of 2.0
 
   // Flag to track connection status
   bool hasShownConnectedPopup = false;
@@ -292,14 +302,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   }
 
   void estimateUserLocation() {
-    if (scannedDevices.length < 2) {
+    if (scannedDevices.length < 3) {
       debugPrint("Not enough beacons for accurate location.");
       return;
     }
 
     final distances = <String, double>{};
     scannedDevices.forEach((id, rssi) {
-      distances[id] = estimateDistance(rssi, -59);
+      // Use the meters-to-grid factor to convert physical distance to grid units
+      double physicalDistanceMeters = estimateDistance(rssi, txPower);
+      distances[id] = physicalDistanceMeters * metersToGridFactor;
+      debugPrint("📏 Beacon $id: RSSI $rssi → ${physicalDistanceMeters.toStringAsFixed(2)}m → ${distances[id].toStringAsFixed(2)} grid units");
     });
 
     final position = _trilaterate(distances);
