@@ -10,6 +10,9 @@ import 'dart:io' show Platform;
 // Import game_screen.dart but hide MapScreen to avoid conflict.
 import 'package:navigation_app/game_screen.dart' hide MapScreen;
 import 'package:navigation_app/map_screen.dart';
+import 'package:navigation_app/models/beacon.dart';
+import 'package:navigation_app/utils/positioning.dart';
+import 'package:navigation_app/utils/smoothed_position.dart';
 
 // Choose a teal color for buttons.
 const Color kTealColor = Color(0xFF008C9E);
@@ -68,8 +71,16 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   double metersToGridFactor = 2.0;  // Default, will be updated from backend
   int txPower = -59;  // Default reference power at 1m
 
+  
+  // New positioning system with smoothing
+  List<Beacon> beaconList = [];
+  late SmoothedPositionTracker positionTracker;
+  Vector2D currentPosition = Vector2D(0, 0);
+
+
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
+  StreamSubscription<Vector2D>? _positionSubscription;
 
   @override
   void initState() {
@@ -78,15 +89,64 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     flutterReactiveBle.statusStream.listen((status) {
       debugPrint("Bluetooth status: $status");
     });
+    
+    // Initialize position tracker with smoothing
+    positionTracker = SmoothedPositionTracker(alpha: 0.85, intervalMs: 500);
+    _positionSubscription = positionTracker.positionStream.listen((position) {
+      setState(() {
+        currentPosition = position;
+        userLocation = "${position.x.round()}, ${position.y.round()}";
+      });
+      
+      // Request path automatically when location updates and booth is selected
+      if (selectedBooth.isNotEmpty) {
+        requestPath(selectedBooth);
+      }
+    });
+    
     fetchConfiguration().then((_) {
       fetchBoothNames();
     });
+    
+    // Start position tracking
+    positionTracker.start();
   }
 
   @override
   void dispose() {
     _scanSubscription?.cancel();
+    _positionSubscription?.cancel();
+    positionTracker.dispose();
     super.dispose();
+  }
+
+  // Convert scanned devices to Beacon objects
+  void _updateBeaconList() {
+    final List<Beacon> updatedBeacons = [];
+    
+    scannedDevices.forEach((id, rssi) {
+      if (beaconIdToPosition.containsKey(id)) {
+        final position = beaconIdToPosition[id]!;
+        updatedBeacons.add(Beacon(
+          id: id,
+          name: id,
+          rssi: rssi,
+          baseRssi: txPower,
+          position: Position(
+            x: position[0].toDouble(), 
+            y: position[1].toDouble()
+          ),
+        ));
+      }
+    });
+    
+    setState(() {
+      beaconList = updatedBeacons;
+    });
+    
+    // Update the position tracker with new beacon data
+    positionTracker.updateBeacons(beaconList);
+    positionTracker.updateCalibration(metersToGridFactor);
   }
 
   // Fetch configuration from backend
@@ -122,6 +182,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           isConfigLoaded = true;
           debugPrint("✅ Configuration loaded from backend");
           debugPrint("📏 Meters to Grid Factor: $metersToGridFactor");
+          
+          // Update calibration in the position tracker
+          positionTracker.updateCalibration(metersToGridFactor);
         });
       } else {
         debugPrint("❌ Failed to load configuration: ${response.statusCode}");
@@ -257,11 +320,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
         // Process the beacon if we've identified it
         if (beaconId != null && beaconIdToPosition.containsKey(beaconId)) {
-          scannedDevices[beaconId] = device.rssi;
+          setState(() {
+            scannedDevices[beaconId!] = device.rssi;
+          });
+          
+          // Update the beacon list with the new RSSI data
+          _updateBeaconList();
+          
           debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
 
           // Trigger connected popup exactly once
-          if (scannedDevices.length == 2 && !hasShownConnectedPopup) {
+          if (scannedDevices.length >= 3 && !hasShownConnectedPopup) {
             hasShownConnectedPopup = true;
 
             showDialog(
@@ -289,95 +358,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               ),
             );
           }
-
-          // Continuously estimate location whenever RSSI updates with at least 3 beacons
-          if (scannedDevices.length >= 2) {
-            estimateUserLocation(); // <-- Automatic location update
-          }
         }
       }
     }, onError: (error) {
       debugPrint("❌ Scan error: $error");
     });
-  }
-
-  void estimateUserLocation() {
-    if (scannedDevices.length < 3) {
-      debugPrint("Not enough beacons for accurate location.");
-      return;
-    }
-
-    final distances = <String, double>{};
-    scannedDevices.forEach((id, rssi) {
-      // Use the meters-to-grid factor to convert physical distance to grid units
-      double physicalDistanceMeters = estimateDistance(rssi, txPower);
-      distances[id] = physicalDistanceMeters * metersToGridFactor;
-      debugPrint("📏 Beacon $id: RSSI $rssi → ${physicalDistanceMeters.toStringAsFixed(2)}m → ${distances[id].toStringAsFixed(2)} grid units");
-    });
-
-    final position = _trilaterate(distances);
-    if (position != null) {
-      double x = position.x < 0 ? 0 : position.x;
-      double y = position.y < 0 ? 0 : position.y;
-      userLocation = "${x.round()}, ${y.round()}";
-      debugPrint("📍 [Auto-update] Current estimated location: $userLocation");
-
-      // Request path automatically when location updates and booth is selected
-      if (selectedBooth.isNotEmpty) {
-        requestPath(selectedBooth);
-      }
-    } else {
-      debugPrint("Trilateration failed.");
-    }
-  }
-
-  // ------------------- Trilateration -------------------
-  Vector2D? _trilaterate(Map<String, double> distances) {
-    if (distances.length < 3) return null;
-    final keys = distances.keys.toList();
-    final p1 = Vector2D(
-      beaconIdToPosition[keys[0]]![0].toDouble(),
-      beaconIdToPosition[keys[0]]![1].toDouble(),
-    );
-    final p2 = Vector2D(
-      beaconIdToPosition[keys[1]]![0].toDouble(),
-      beaconIdToPosition[keys[1]]![1].toDouble(),
-    );
-    final p3 = Vector2D(
-      beaconIdToPosition[keys[2]]![0].toDouble(),
-      beaconIdToPosition[keys[2]]![1].toDouble(),
-    );
-    final r1 = distances[keys[0]]!;
-    final r2 = distances[keys[1]]!;
-    final r3 = distances[keys[2]]!;
-
-    final A = 2 * (p2.x - p1.x);
-    final B = 2 * (p2.y - p1.y);
-    final C = r1 * r1 - r2 * r2 - p1.x * p1.x + p2.x * p2.x - p1.y * p1.y + p2.y * p2.y;
-    final D = 2 * (p3.x - p2.x);
-    final E = 2 * (p3.y - p2.y);
-    final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
-    final denom = A * E - B * D;
-    if (denom.abs() < 1e-6) return null;
-    final x = (C * E - B * F) / denom;
-    final y = (A * F - C * D) / denom;
-    return Vector2D(x, y);
-  }
-
-  // ------------------- Fetch Booth Names from Backend -------------------
-  Future<void> fetchBoothNames() async {
-    final url = Uri.parse('$backendUrl/booths');
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final List<dynamic> booths = jsonDecode(response.body);
-        setState(() {
-          boothNames = booths.map((b) => b["name"] as String).toList();
-        });
-      }
-    } catch (e) {
-      debugPrint("❌ Exception while fetching booth list: $e");
-    }
   }
 
   // ------------------- Request Path -------------------
@@ -427,6 +412,22 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         ),
       ),
     );
+  }
+
+  // ------------------- Fetch Booth Names from Backend -------------------
+  Future<void> fetchBoothNames() async {
+    final url = Uri.parse('$backendUrl/booths');
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final List<dynamic> booths = jsonDecode(response.body);
+        setState(() {
+          boothNames = booths.map((b) => b["name"] as String).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("❌ Exception while fetching booth list: $e");
+    }
   }
 
   // ------------------- UI Build -------------------
@@ -481,6 +482,29 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                     setState(() => _selectedEvent = val);
                   }
                 },
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Display current position
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.teal[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current Position:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 4),
+                  Text('X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
+                  SizedBox(height: 4),
+                  Text('Detected beacons: ${beaconList.length}'),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -561,10 +585,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  estimateUserLocation();
-                  openMapScreen();
-                },
+                onPressed: openMapScreen,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
                   foregroundColor: Colors.white,
@@ -574,6 +595,37 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 child: const Text("Show Map"),
               ),
             ),
+            const SizedBox(height: 12),
+
+            // Beacon information
+            if (beaconList.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Beacon Information:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    ...beaconList.map((beacon) {
+                      final distance = rssiToDistance(beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4.0),
+                        child: Text(
+                          '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m)',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
             const SizedBox(height: 12),
 
             // 7) Game Mode (Navigate to GameScreen)
@@ -605,31 +657,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       ),
     );
   }
-}
-
-class Vector2D {
-  final double x, y;
-  Vector2D(this.x, this.y);
-}
-
-Vector2D? trilaterate(Map<String, double> d, Map<String, List<int>> p) {
-  if (d.length < 3) return null;
-  final keys = d.keys.toList();
-  final p1 = Vector2D(p[keys[0]]![0].toDouble(), p[keys[0]]![1].toDouble());
-  final p2 = Vector2D(p[keys[1]]![0].toDouble(), p[keys[1]]![1].toDouble());
-  final p3 = Vector2D(p[keys[2]]![0].toDouble(), p[keys[2]]![1].toDouble());
-  final r1 = d[keys[0]]!, r2 = d[keys[1]]!, r3 = d[keys[2]]!;
-  final A = 2 * (p2.x - p1.x), B = 2 * (p2.y - p1.y);
-  final C = r1 * r1 - r2 * r2 - p1.x * p1.x + p2.x * p2.x - p1.y * p1.y + p2.y * p2.y;
-  final D = 2 * (p3.x - p2.x), E = 2 * (p3.y - p2.y);
-  final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
-  final denom = A * E - B * D;
-  if (denom.abs() < 1e-6) return null;
-  final x = (C * E - B * F) / denom;
-  final y = (A * F - C * D) / denom;
-  final clampedX = x < 0 ? 0.0 : x;
-  final clampedY = y < 0 ? 0.0 : y;
-  return Vector2D(clampedX, clampedY);
 }
 
 
