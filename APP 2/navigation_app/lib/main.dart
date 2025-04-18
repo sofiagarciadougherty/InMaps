@@ -71,12 +71,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   double metersToGridFactor = 2.0;  // Default, will be updated from backend
   int txPower = -59;  // Default reference power at 1m
 
-  
   // New positioning system with smoothing
   List<Beacon> beaconList = [];
   late SmoothedPositionTracker positionTracker;
   Vector2D currentPosition = Vector2D(0, 0);
 
+  // New position confidence metric
+  double positionConfidence = 1.0;
+  
+  // New configuration for beacon quality thresholds
+  final int staleThresholdMs = 10000; // 10 seconds
+  final double maxRangeMeters = 15.0; // 15 meters
 
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
@@ -90,12 +95,20 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       debugPrint("Bluetooth status: $status");
     });
     
-    // Initialize position tracker with smoothing
-    positionTracker = SmoothedPositionTracker(alpha: 0.85, intervalMs: 500);
+    // Initialize position tracker with enhanced configuration
+    positionTracker = SmoothedPositionTracker(
+      alpha: 0.85,            // Baseline smoothing factor
+      intervalMs: 500,        // Update interval
+      staleThresholdMs: staleThresholdMs,
+      maxRangeMeters: maxRangeMeters,
+      useAdaptiveThresholds: true, // Enable adaptive thresholds
+    );
+    
     _positionSubscription = positionTracker.positionStream.listen((position) {
       setState(() {
         currentPosition = position;
         userLocation = "${position.x.round()}, ${position.y.round()}";
+        positionConfidence = positionTracker.confidence;
       });
       
       // Request path automatically when location updates and booth is selected
@@ -120,23 +133,51 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     super.dispose();
   }
 
-  // Convert scanned devices to Beacon objects
+  // Convert scanned devices to Beacon objects with timestamp updates
   void _updateBeaconList() {
     final List<Beacon> updatedBeacons = [];
+    final now = DateTime.now().millisecondsSinceEpoch;
     
     scannedDevices.forEach((id, rssi) {
       if (beaconIdToPosition.containsKey(id)) {
         final position = beaconIdToPosition[id]!;
-        updatedBeacons.add(Beacon(
-          id: id,
-          name: id,
-          rssi: rssi,
-          baseRssi: txPower,
-          position: Position(
-            x: position[0].toDouble(), 
-            y: position[1].toDouble()
-          ),
-        ));
+        
+        // Check if this beacon already exists in our list
+        final existingBeaconIndex = beaconList.indexWhere((b) => b.id == id);
+        
+        if (existingBeaconIndex >= 0) {
+          // Update existing beacon
+          final existingBeacon = beaconList[existingBeaconIndex];
+          updatedBeacons.add(existingBeacon.copyWith(
+            rssi: rssi,
+            lastUpdated: now,
+            isActive: true,
+          ));
+        } else {
+          // Create new beacon
+          updatedBeacons.add(Beacon(
+            id: id,
+            name: id,
+            rssi: rssi,
+            baseRssi: txPower,
+            position: Position(
+              x: position[0].toDouble(), 
+              y: position[1].toDouble()
+            ),
+            lastUpdated: now,
+          ));
+        }
+      }
+    });
+    
+    // Keep beacons that still exist but weren't updated in this scan
+    // (they might be stale but we'll let the positioning system decide that)
+    beaconList.forEach((existingBeacon) {
+      if (!updatedBeacons.any((b) => b.id == existingBeacon.id)) {
+        // Only keep beacons that aren't extremely stale (3x threshold)
+        if (!existingBeacon.isStale(staleThresholdMs * 3)) {
+          updatedBeacons.add(existingBeacon);
+        }
       }
     });
     
@@ -486,7 +527,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             ),
             const SizedBox(height: 12),
 
-            // Display current position
+            // Display current position with confidence indicator
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -502,6 +543,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   ),
                   SizedBox(height: 4),
                   Text('X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
+                  SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text('Confidence: '),
+                      _buildConfidenceMeter(positionConfidence),
+                    ],
+                  ),
                   SizedBox(height: 4),
                   Text('Detected beacons: ${beaconList.length}'),
                 ],
@@ -597,7 +645,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             ),
             const SizedBox(height: 12),
 
-            // Beacon information
+            // Beacon information with quality indicators
             if (beaconList.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(10),
@@ -615,11 +663,44 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                     SizedBox(height: 8),
                     ...beaconList.map((beacon) {
                       final distance = rssiToDistance(beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
+                      final isStale = beacon.isStale(staleThresholdMs);
+                      final stalenessFactor = calculateStalenessFactor(beacon, staleThresholdMs);
+                      final distanceFactor = calculateDistanceFactor(distance, maxRangeMeters);
+                      
+                      // Decide icon based on quality factors
+                      String qualityIcon = '⚠️'; // Warning by default
+                      
+                      if (stalenessFactor > 0.8 && distanceFactor > 0.8) {
+                        qualityIcon = '✓'; // Good
+                      } else if (stalenessFactor > 0.5 && distanceFactor > 0.5) {
+                        qualityIcon = '⚠️'; // Warning
+                      } else {
+                        qualityIcon = '⛔'; // Poor
+                      }
+                      
+                      // Format time since update
+                      final now = DateTime.now().millisecondsSinceEpoch;
+                      final ageSeconds = (now - beacon.lastUpdated) / 1000;
+                      final ageText = ageSeconds < 60 
+                          ? '${ageSeconds.toStringAsFixed(1)}s ago' 
+                          : '${(ageSeconds / 60).toStringAsFixed(1)}m ago';
+                      
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4.0),
-                        child: Text(
-                          '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m)',
-                          style: TextStyle(fontSize: 14),
+                        child: Row(
+                          children: [
+                            Text(qualityIcon),
+                            SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m) - $ageText',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isStale ? Colors.grey : Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     }),
@@ -655,6 +736,42 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           ],
         ),
       ),
+    );
+  }
+  
+  // Helper method to show position confidence
+  Widget _buildConfidenceMeter(double confidence) {
+    Color barColor = Colors.red;
+    if (confidence > 0.7) {
+      barColor = Colors.green;
+    } else if (confidence > 0.4) {
+      barColor = Colors.orange;
+    }
+    
+    return Row(
+      children: [
+        Container(
+          width: 100,
+          height: 10,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(5),
+            color: Colors.grey[300],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 100 * confidence,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(5),
+                  color: barColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(width: 8),
+        Text('${(confidence * 100).toStringAsFixed(0)}%'),
+      ],
     );
   }
 }
