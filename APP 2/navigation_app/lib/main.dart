@@ -107,7 +107,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
 
           // Trigger connected popup exactly once
-          if (scannedDevices.length == 3 && !hasShownConnectedPopup) {
+          if (scannedDevices.length == 2 && !hasShownConnectedPopup) {
             hasShownConnectedPopup = true;
 
             showDialog(
@@ -137,7 +137,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           }
 
           // Continuously estimate location whenever RSSI updates with at least 3 beacons
-          if (scannedDevices.length >= 3) {
+          if (scannedDevices.length >= 2) {
             estimateUserLocation(); // <-- Automatic location update
           }
         }
@@ -151,7 +151,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
 
   void estimateUserLocation() {
-    if (scannedDevices.length < 3) {
+    if (scannedDevices.length < 2) {
       debugPrint("Not enough beacons for accurate location.");
       return;
     }

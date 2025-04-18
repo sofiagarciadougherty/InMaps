@@ -99,6 +99,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (mounted) {
       setState(() => scannedDevices.clear());
     }
+    
     _scanSubscription = flutterReactiveBle.scanForDevices(
       withServices: [],
       scanMode: ScanMode.lowLatency,
@@ -119,7 +120,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     }, onError: (err) {
       debugPrint("❌ BLE scan error: $err");
     });
-  }
+}
+
 
   // ---------------- Distance & Trilateration ----------------
   double _estimateDistance(int rssi, int txPower) {

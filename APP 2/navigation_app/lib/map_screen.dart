@@ -48,28 +48,29 @@ class _MapScreenState extends State<MapScreen> {
     );
 
     fetchMapData();
+    
+      _headingSub = FlutterCompass.events?.listen((event) {
+        if (event.heading != null) {
+          setState(() {
+            currentHeading = event.heading!;
+            headingRadians = currentHeading * pi / 180;
+          });
+        }
+      });
+      
+      _accelSub = accelerometerEvents.listen((event) {
+        double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+        if (magnitude > 12) {
+          stepCount++;
+          imuOffset = Vector2D(
+            imuOffset.x + cos(headingRadians) * 10,
+            imuOffset.y + sin(headingRadians) * 10,
+          );
+          print("🦶 Step $stepCount → IMU Offset: (${imuOffset.x.toStringAsFixed(2)}, ${imuOffset.y.toStringAsFixed(2)})");
+        }
+      });
+    }
 
-    _headingSub = FlutterCompass.events?.listen((event) {
-      if (event.heading != null) {
-        setState(() {
-          currentHeading = event.heading!;
-          headingRadians = currentHeading * pi / 180;
-        });
-      }
-    });
-
-    _accelSub = accelerometerEvents.listen((event) {
-      double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
-      if (magnitude > 12) {
-        stepCount++;
-        imuOffset = Vector2D(
-          imuOffset.x + cos(headingRadians) * 10,
-          imuOffset.y + sin(headingRadians) * 10,
-        );
-        print("🦶 Step \$stepCount → IMU Offset: (\${imuOffset.x.toStringAsFixed(2)}, \${imuOffset.y.toStringAsFixed(2)})");
-      }
-    });
-  }
 
   Future<void> fetchMapData() async {
     final url = Uri.parse("https://inmaps.onrender.com/map-data");
