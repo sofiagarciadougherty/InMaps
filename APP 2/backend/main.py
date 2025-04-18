@@ -90,10 +90,38 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
+# Mapping between iOS beacon IDs and Android MAC addresses
+BEACON_MAC_MAP = {
+    "14b00739": "00:FA:B6:2F:50:8C",
+    "14b6072G": "00:FA:B6:2F:51:28",
+    "14b7072H": "00:FA:B6:2F:51:25",
+    "14bC072N": "00:FA:B6:2F:51:16",
+    "14bE072Q": "00:FA:B6:2F:51:10",
+    "14bF072R": "00:FA:B6:2F:51:0D",
+    "14bK072V": "00:FA:B6:2F:51:01",
+    "14bM072X": "00:FA:B6:2F:50:FB",
+    "14j006gQ": "00:FA:B6:31:02:BA",
+    "14j606Gv": "00:FA:B6:31:12:F8",
+    "14j706Gw": "00:FA:B6:31:12:F5",
+    "14j706gX": "00:FA:B6:31:02:A5",
+    "14j906Gy": "00:FA:B6:31:12:EF",
+    "14jd06i0": "00:FA:B6:31:01:A0",
+    "14jj06i6": "00:FA:B6:31:01:8E",
+    "14jr06gF": "00:FA:B6:31:02:D5",
+    "14jr08Ef": "00:FA:B6:30:C2:F1",
+    "14js06gG": "00:FA:B6:31:02:D2",
+    "14jv06gK": "00:FA:B6:31:02:C9",
+    "14jw08Ek": "00:FA:B6:30:C2:E2"
+}
+
+# Create reverse mapping (MAC to ID)
+MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
+
+# Beacon positions (using iOS IDs for consistency with frontend)
 BEACON_POSITIONS = {
-    "17091": (0, 0),
-    "15995":(1,0),
-    "25450":(0,1)
+    "14j906Gy": (0, 0),
+    "14jr08Ef": (1, 0),
+    "14j606Gv": (0, 1)
 }
 
 # ====== Models ======
@@ -116,7 +144,12 @@ def locate_user(data: BLEScan):
     total_weight = 0
 
     for reading in data.ble_data:
-        pos = BEACON_POSITIONS.get(reading.uuid)
+        # Check if the UUID is a MAC address and map it if necessary
+        beacon_id = reading.uuid
+        if ":" in reading.uuid:  # This is likely a MAC address
+            beacon_id = MAC_TO_ID_MAP.get(reading.uuid, reading.uuid)
+        
+        pos = BEACON_POSITIONS.get(beacon_id)
         if pos:
             weight = 1 / (abs(reading.rssi) + 1)
             weighted_sum_x += pos[0] * weight
@@ -202,6 +235,16 @@ def get_map_data():
         })
 
     return JSONResponse(content={"elements": visual_elements})
+
+@app.get("/config")
+def get_config():
+    """Provide configuration data for the mobile app, including beacon positions and mapping."""
+    return {
+        "beaconPositions": {id: {"x": pos[0], "y": pos[1]} for id, pos in BEACON_POSITIONS.items()},
+        "beaconIdMapping": BEACON_MAC_MAP,
+        "gridCellSize": 50,  # pixels per grid cell
+        "pixelsPerMeter": 40,  # conversion factor for physical distance
+    }
 
 # ====== A* Algorithm ======
 def a_star(start, goal):

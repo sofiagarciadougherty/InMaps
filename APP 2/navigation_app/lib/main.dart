@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
-
+import 'dart:io' show Platform;
 
 // Import game_screen.dart but hide MapScreen to avoid conflict.
 import 'package:navigation_app/game_screen.dart' hide MapScreen;
@@ -52,12 +52,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   String userLocation = "";
   List<List<dynamic>> currentPath = [];
 
-  // Known beacon positions
-  final Map<String, List<int>> beaconIdToPosition = {
-    "14j906Gy": [0, 0],
-    "14jr08Ef": [200, 0],
-    "14j606Gv": [0, 200],
-  };
+  // Backend URL
+  final String backendUrl = 'https://inmaps.onrender.com';
+  
+  // Configuration from backend
+  Map<String, dynamic> configData = {};
+  Map<String, List<int>> beaconIdToPosition = {};
+  Map<String, String> beacon_mac_map = {};
+  Map<String, String> mac_to_id_map = {};
+  int gridCellSize = 50;
+  int pixelsPerMeter = 40;
+  bool isConfigLoaded = false;
 
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
@@ -69,7 +74,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     flutterReactiveBle.statusStream.listen((status) {
       debugPrint("Bluetooth status: $status");
     });
-    fetchBoothNames();
+    fetchConfiguration().then((_) {
+      fetchBoothNames();
+    });
   }
 
   @override
@@ -78,14 +85,127 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     super.dispose();
   }
 
+  // Fetch configuration from backend
+  Future<void> fetchConfiguration() async {
+    try {
+      final response = await http.get(Uri.parse('$backendUrl/config'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          configData = data;
+          
+          // Parse beacon positions
+          final positions = data['beaconPositions'] as Map<String, dynamic>;
+          beaconIdToPosition = positions.map((key, value) => 
+            MapEntry(key, [
+              (value['x'] as num).toInt() * gridCellSize, 
+              (value['y'] as num).toInt() * gridCellSize
+            ])
+          );
+          
+          // Parse beacon ID mapping
+          beacon_mac_map = Map<String, String>.from(data['beaconIdMapping']);
+          mac_to_id_map = {};
+          beacon_mac_map.forEach((id, mac) {
+            mac_to_id_map[mac] = id;
+          });
+          
+          // Parse scale factors
+          gridCellSize = data['gridCellSize'] ?? 50;
+          pixelsPerMeter = data['pixelsPerMeter'] ?? 40;
+          
+          isConfigLoaded = true;
+          debugPrint("✅ Configuration loaded from backend");
+        });
+      } else {
+        debugPrint("❌ Failed to load configuration: ${response.statusCode}");
+        // Fall back to hardcoded values
+        _initializeDefaultConfig();
+      }
+    } catch (e) {
+      debugPrint("❌ Error loading configuration: $e");
+      // Fall back to hardcoded values
+      _initializeDefaultConfig();
+    }
+  }
+  
+  // Initialize with default hardcoded values if backend config fails
+  void _initializeDefaultConfig() {
+    setState(() {
+      beaconIdToPosition = {
+        "14j906Gy": [0, 0],
+        "14jr08Ef": [200, 0],
+        "14j606Gv": [0, 200],
+      };
+      
+      beacon_mac_map = {
+        "14b00739": "00:FA:B6:2F:50:8C",
+        "14b6072G": "00:FA:B6:2F:51:28",
+        "14b7072H": "00:FA:B6:2F:51:25",
+        "14bC072N": "00:FA:B6:2F:51:16",
+        "14bE072Q": "00:FA:B6:2F:51:10",
+        "14bF072R": "00:FA:B6:2F:51:0D",
+        "14bK072V": "00:FA:B6:2F:51:01",
+        "14bM072X": "00:FA:B6:2F:50:FB",
+        "14j006gQ": "00:FA:B6:31:02:BA",
+        "14j606Gv": "00:FA:B6:31:12:F8",
+        "14j706Gw": "00:FA:B6:31:12:F5",
+        "14j706gX": "00:FA:B6:31:02:A5",
+        "14j906Gy": "00:FA:B6:31:12:EF",
+        "14jd06i0": "00:FA:B6:31:01:A0",
+        "14jj06i6": "00:FA:B6:31:01:8E",
+        "14jr06gF": "00:FA:B6:31:02:D5",
+        "14jr08Ef": "00:FA:B6:30:C2:F1",
+        "14js06gG": "00:FA:B6:31:02:D2",
+        "14jv06gK": "00:FA:B6:31:02:C9",
+        "14jw08Ek": "00:FA:B6:30:C2:E2"
+      };
+      
+      mac_to_id_map = {};
+      beacon_mac_map.forEach((id, mac) {
+        mac_to_id_map[mac] = id;
+      });
+      
+      isConfigLoaded = true;
+      debugPrint("⚠️ Using default configuration");
+    });
+  }
+
   double estimateDistance(int rssi, int txPower) =>
       pow(10, (txPower - rssi) / 20).toDouble();
 
   // Flag to track connection status
   bool hasShownConnectedPopup = false;
 
-
   void startScan() async {
+    if (!isConfigLoaded) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: Colors.teal[50],
+          title: const Text(
+            "Configuration Loading",
+            style: TextStyle(color: kTealColor, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            "Please wait while the configuration is loading...",
+            style: TextStyle(color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: kTealColor,
+              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     await _scanSubscription?.cancel();
     setState(() {
       scannedDevices.clear();
@@ -96,13 +216,37 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       withServices: [],
       scanMode: ScanMode.lowLatency,
     ).listen((device) {
-      if (device.name.toLowerCase() == "kontakt" &&
-          device.serviceData.containsKey(Uuid.parse("FE6A"))) {
-        final rawData = device.serviceData[Uuid.parse("FE6A")]!;
-        final asciiBytes = rawData.sublist(13);
-        final beaconId = String.fromCharCodes(asciiBytes);
+      // Debug information
+      debugPrint("Found device: ${device.name}, ID: ${device.id}");
 
-        if (beaconIdToPosition.containsKey(beaconId)) {
+      String? beaconId;
+
+      // Process Kontakt beacons
+      if (device.name.toLowerCase() == "kontakt") {
+        if (Platform.isAndroid) {
+          // For Android: Check if the MAC address is in our mapping
+          if (mac_to_id_map.containsKey(device.id)) {
+            beaconId = mac_to_id_map[device.id];
+            debugPrint("✓ Android: Mapped MAC ${device.id} to ID $beaconId");
+          }
+        }
+
+        // For both platforms: Try to extract ID from service data
+        if (device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+          final asciiBytes = rawData.sublist(13);
+          final extractedId = String.fromCharCodes(asciiBytes);
+
+          debugPrint("Extracted ID from service data: $extractedId");
+
+          // On iOS we use the extracted ID directly
+          if (Platform.isIOS || beaconId == null) {
+            beaconId = extractedId;
+          }
+        }
+
+        // Process the beacon if we've identified it
+        if (beaconId != null && beaconIdToPosition.containsKey(beaconId)) {
           scannedDevices[beaconId] = device.rssi;
           debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
 
@@ -146,9 +290,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       debugPrint("❌ Scan error: $error");
     });
   }
-
-
-
 
   void estimateUserLocation() {
     if (scannedDevices.length < 2) {
@@ -212,7 +353,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Fetch Booth Names from Backend -------------------
   Future<void> fetchBoothNames() async {
-    final url = Uri.parse('https://inmaps.onrender.com/booths');
+    final url = Uri.parse('$backendUrl/booths');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -230,10 +371,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   Future<void> requestPath(String boothName) async {
     if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
 
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
     try {
       final response = await http.post(
-        Uri.parse('https://inmaps.onrender.com/path'),
+        Uri.parse('$backendUrl/path'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"from_": start, "to": boothName}),
       );
@@ -258,23 +399,22 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Open Map Screen -------------------
   void openMapScreen() async {
-      if (userLocation.isEmpty || selectedBooth.isEmpty) return;
+    if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
-      final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
-      final heading = await FlutterCompass.events!.first; // One-time heading fetch
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
+    final heading = await FlutterCompass.events!.first; // One-time heading fetch
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => MapScreen(
-            path: currentPath,
-            startLocation: start,
-            headingDegrees: heading.heading ?? 0.0,
-          ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MapScreen(
+          path: currentPath,
+          startLocation: start,
+          headingDegrees: heading.heading ?? 0.0,
         ),
-      );
-    }
-
+      ),
+    );
+  }
 
   // ------------------- UI Build -------------------
   @override
@@ -311,7 +451,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                  color: Colors.grey[200],
+                color: Colors.grey[200],
               ),
               child: DropdownButton<String>(
                 value: _selectedEvent.isEmpty ? _events[0] : _selectedEvent,
@@ -476,7 +616,6 @@ Vector2D? trilaterate(Map<String, double> d, Map<String, List<int>> p) {
   final y = (A * F - C * D) / denom;
   final clampedX = x < 0 ? 0.0 : x;
   final clampedY = y < 0 ? 0.0 : y;
-  return Vector2D(clampedX, clampedY);
   return Vector2D(clampedX, clampedY);
 }
 
