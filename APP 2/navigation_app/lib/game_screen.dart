@@ -7,16 +7,12 @@ import 'package:http/http.dart' as http;
 import 'package:navigation_app/map_screen.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-
+import 'package:navigation_app/models/beacon.dart';
+import 'package:navigation_app/utils/positioning.dart';
+import './utils/vector2d.dart';
 
 // Global variable to preserve total points between screen navigations.
 int globalTotalPoints = 0;
-
-/// A simple 2D vector class used for trilateration.
-class Vector2D {
-  final double x, y;
-  Vector2D(this.x, this.y);
-}
 
 class GameScreen extends StatefulWidget {
   const GameScreen({Key? key}) : super(key: key);
@@ -122,53 +118,31 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     });
   }
 
-
-  // ---------------- Distance & Trilateration ----------------
-  double _estimateDistance(int rssi, int txPower) {
-    return pow(10, (txPower - rssi) / 20).toDouble();
-  }
-
-  Vector2D? _trilaterate(Map<String, double> distances) {
-    if (distances.length < 3) return null;
-    final keys = distances.keys.toList();
-    final p1 = Vector2D(
-      beaconIdToPosition[keys[0]]![0].toDouble(),
-      beaconIdToPosition[keys[0]]![1].toDouble(),
-    );
-    final p2 = Vector2D(
-      beaconIdToPosition[keys[1]]![0].toDouble(),
-      beaconIdToPosition[keys[1]]![1].toDouble(),
-    );
-    final p3 = Vector2D(
-      beaconIdToPosition[keys[2]]![0].toDouble(),
-      beaconIdToPosition[keys[2]]![1].toDouble(),
-    );
-    final r1 = distances[keys[0]]!;
-    final r2 = distances[keys[1]]!;
-    final r3 = distances[keys[2]]!;
-
-    final A = 2 * (p2.x - p1.x);
-    final B = 2 * (p2.y - p1.y);
-    final C = r1 * r1 - r2 * r2 - p1.x * p1.x + p2.x * p2.x - p1.y * p1.y + p2.y * p2.y;
-    final D = 2 * (p3.x - p2.x);
-    final E = 2 * (p3.y - p2.y);
-    final F = r2 * r2 - r3 * r3 - p2.x * p2.x + p3.x * p3.x - p2.y * p2.y + p3.y * p3.y;
-    final denom = A * E - B * D;
-    if (denom.abs() < 1e-6) return null;
-    final x = (C * E - B * F) / denom;
-    final y = (A * F - C * D) / denom;
-    return Vector2D(x, y);
-  }
-
   // ---------------- Estimate User Location ----------------
   void _estimateUserLocation() {
-    final distances = <String, double>{};
+    // Convert scanned devices to Beacon objects
+    final List<Beacon> beacons = [];
     scannedDevices.forEach((id, rssi) {
-      distances[id] = _estimateDistance(rssi, -59);
+      if (beaconIdToPosition.containsKey(id)) {
+        final pos = beaconIdToPosition[id]!;
+        beacons.add(Beacon(
+          id: id,
+          rssi: rssi,
+          baseRssi: -59, // Use the same reference power as in main.dart
+          position: Position(
+            x: pos[0].toDouble(),
+            y: pos[1].toDouble(),
+          ),
+        ));
+      }
     });
-    final position = _trilaterate(distances);
-    if (position != null && mounted) {
-      setState(() => userLocation = "${position.x.round()}, ${position.y.round()}");
+
+    // Use the utils version of multilaterate
+    if (beacons.isNotEmpty) {
+      final position = multilaterate(beacons, 1.0); // Use 1.0 as metersToGridFactor since we're already in grid units
+      if (mounted) {
+        setState(() => userLocation = "${position['x']!.round()}, ${position['y']!.round()}");
+      }
     }
   }
 
@@ -317,6 +291,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               path: List<List<dynamic>>.from(path),
               startLocation: start,
               headingDegrees: headingDegrees,
+              initialPosition: Vector2D(
+                start[0] * 50.0,
+                start[1] * 50.0,
+              ),
             ),
           ),
         ).then((_) {

@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -6,17 +5,20 @@ import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
-
-class Vector2D {
-  final double x, y;
-  Vector2D(this.x, this.y);
-}
+import './utils/vector2d.dart';
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
   final List<int> startLocation;
   final double headingDegrees;
-  MapScreen({required this.path, required this.startLocation, required this.headingDegrees});
+  final Vector2D initialPosition;
+
+  MapScreen({
+    required this.path,
+    required this.startLocation,
+    required this.headingDegrees,
+    required this.initialPosition,
+  });
 
   @override
   _MapScreenState createState() => _MapScreenState();
@@ -36,15 +38,15 @@ class _MapScreenState extends State<MapScreen> {
   int stepCount = 0;
 
   Offset basePosition = Offset.zero;
-  static const double cellSize = 50.0;
+  static const double cellSize = 40.0;
 
   @override
   void initState() {
     super.initState();
 
     basePosition = Offset(
-      (widget.startLocation[0] + 0.5) * cellSize,
-      (widget.startLocation[1] + 0.5) * cellSize,
+      widget.initialPosition.x,
+      widget.initialPosition.y,
     );
 
     fetchMapData();
@@ -62,15 +64,15 @@ class _MapScreenState extends State<MapScreen> {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       if (magnitude > 12) {
         stepCount++;
+        final stepDistanceInPixels = 0.7 * cellSize;
         imuOffset = Vector2D(
-          imuOffset.x + cos(headingRadians) * 10,
-          imuOffset.y + sin(headingRadians) * 10,
+          imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
+          imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
         );
-        print("🦶 Step $stepCount → IMU Offset: (${imuOffset.x.toStringAsFixed(2)}, ${imuOffset.y.toStringAsFixed(2)})");
+        print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x/cellSize).toStringAsFixed(2)}m, ${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
       }
     });
   }
-
 
   Future<void> fetchMapData() async {
     final url = Uri.parse("https://inmaps.onrender.com/map-data");
@@ -119,7 +121,9 @@ class _MapScreenState extends State<MapScreen> {
         child: Container(
           width: maxX,
           height: maxY,
+          color: Colors.white,
           child: CustomPaint(
+            size: Size(maxX, maxY),
             painter: MapPainter(
               elements,
               widget.path,
@@ -141,7 +145,7 @@ class MapPainter extends CustomPainter {
   final double headingDegrees;
   final Vector2D imuOffset;
 
-  static const double cellSize = 50.0;
+  static const double cellSize = 40.0;
 
   MapPainter(
       this.elements,
@@ -229,6 +233,97 @@ class MapPainter extends CustomPainter {
         canvas.drawLine(p1, p2, paintPath);
       }
     }
+
+    // Draw grid on top
+    final gridPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    final maxGridX = size.width;
+    final maxGridY = size.height;
+
+    // Draw vertical grid lines
+    for (double x = 0; x <= maxGridX; x += cellSize) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, maxGridY),
+        gridPaint,
+      );
+
+      // Add coordinates every 80 pixels (2 meters)
+      if (x % (cellSize * 2) == 0) {
+        final pixels = x.toInt();
+        final meters = (pixels / cellSize).toStringAsFixed(1);
+        TextPainter(
+          text: TextSpan(
+            text: '${pixels}px\n${meters}m',
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              backgroundColor: Color(0xBBFFFFFF),
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        )
+          ..layout()
+          ..paint(canvas, Offset(x + 2, 2));
+      }
+    }
+
+    // Draw horizontal grid lines
+    for (double y = 0; y <= maxGridY; y += cellSize) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(maxGridX, y),
+        gridPaint,
+      );
+
+      // Add coordinates every 80 pixels (2 meters)
+      if (y % (cellSize * 2) == 0) {
+        final pixels = y.toInt();
+        final meters = (pixels / cellSize).toStringAsFixed(1);
+        TextPainter(
+          text: TextSpan(
+            text: '${pixels}px\n${meters}m',
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              backgroundColor: Color(0xBBFFFFFF),
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        )
+          ..layout()
+          ..paint(canvas, Offset(2, y + 2));
+      }
+    }
+
+    // Update user position display to show both pixels and meters
+    final userPixelX = userCenter.dx.toInt();
+    final userPixelY = userCenter.dy.toInt();
+    final userMeterX = (userPixelX / cellSize).toStringAsFixed(1);
+    final userMeterY = (userPixelY / cellSize).toStringAsFixed(1);
+
+    TextPainter(
+      text: TextSpan(
+        text: 'Pixels: ($userPixelX, $userPixelY)\nMeters: (${userMeterX}m, ${userMeterY}m)',
+        style: const TextStyle(
+          color: Colors.blue,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          backgroundColor: Color(0xDDFFFFFF),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    )
+      ..layout()
+      ..paint(canvas, userCenter + const Offset(-40, -35));
   }
 
   @override
