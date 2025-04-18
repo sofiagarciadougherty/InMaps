@@ -1,4 +1,4 @@
-
+import 'package:navigation_app/models/vector2d.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -7,10 +7,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
 
-class Vector2D {
-  final double x, y;
-  Vector2D(this.x, this.y);
-}
+
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
@@ -48,28 +45,28 @@ class _MapScreenState extends State<MapScreen> {
     );
 
     fetchMapData();
-    
-      _headingSub = FlutterCompass.events?.listen((event) {
-        if (event.heading != null) {
-          setState(() {
-            currentHeading = event.heading!;
-            headingRadians = currentHeading * pi / 180;
-          });
-        }
-      });
-      
-      _accelSub = accelerometerEvents.listen((event) {
-        double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
-        if (magnitude > 12) {
-          stepCount++;
-          imuOffset = Vector2D(
-            imuOffset.x + cos(headingRadians) * 10,
-            imuOffset.y + sin(headingRadians) * 10,
-          );
-          print("🦶 Step $stepCount → IMU Offset: (${imuOffset.x.toStringAsFixed(2)}, ${imuOffset.y.toStringAsFixed(2)})");
-        }
-      });
-    }
+
+    _headingSub = FlutterCompass.events?.listen((event) {
+      if (event.heading != null) {
+        setState(() {
+          currentHeading = event.heading!;
+          headingRadians = currentHeading * pi / 180;
+        });
+      }
+    });
+
+    _accelSub = accelerometerEvents.listen((event) {
+      double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      if (magnitude > 12) {
+        stepCount++;
+        imuOffset = Vector2D(
+          imuOffset.x + cos(headingRadians) * 10,
+          imuOffset.y + sin(headingRadians) * 10,
+        );
+        print("🦶 Step $stepCount → IMU Offset: (${imuOffset.x.toStringAsFixed(2)}, ${imuOffset.y.toStringAsFixed(2)})");
+      }
+    });
+  }
 
 
   Future<void> fetchMapData() async {

@@ -7,127 +7,38 @@ import pandas as pd
 import numpy as np
 import json
 import ast
-import math
 
 app = FastAPI()
 
 CSV_PATH = "booth_coordinates.csv"
 
-# Add calibration constants
-CELL_SIZE = 50  # pixels per grid cell
-# Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 2.0  # 1 meter = 2 grid units by default
+@app.on_event("startup")
 
 def load_booth_data(csv_path):
+    import pandas as pd
     df = pd.read_csv(csv_path)
     booths = []
-    print("📦 Loading booths from CSV...")
-
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
-            continue
-        try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
-            center = ast.literal_eval(row["Center Coordinates"])
-        except Exception as e:
-            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
-            continue
-
-        if "blocker" in row["Name"].lower():
-            booth_type = "blocker"
-        elif "booth" in row["Name"].lower():
-            booth_type = "booth"
-        else:
-            booth_type = "other"  # default/fallback for stuff like bathroom
-
-        name = row["Name"].strip()
-
-        print(f"✅ Loaded booth: {name} ({booth_type})")
-
-        booths.append({
-            "booth_id": int(row["Booth ID"]),
-            "name": name,
-            "type": booth_type,
+        booth = {
+            "name": row["Name"],
+            "description": row["Description"],
+            "type": "booth",  # Adjust if needed
             "area": {
-                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
-                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
-            },
-            "center": {"x": center[0], "y": center[1]}
-        })
-    print(f"📊 Total booths loaded: {len(booths)}")
+                "start": {"x": int(row["Start_X"]), "y": int(row["Start_Y"])},
+                "end": {"x": int(row["End_X"]), "y": int(row["End_Y"])}
+            }
+        }
+        booths.append(booth)
     return booths
-
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
-    df = pd.read_csv(csv_path)
-    grid_width = canvas_width // grid_size
-    grid_height = canvas_height // grid_size
-    venue_grid = np.ones((grid_height, grid_width), dtype=int)
-
-    for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            continue
-        try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
-        except Exception:
-            continue
-
-        # Mark all types as obstacles
-        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(coords["start"]["x"])
-            start_px_y = int(coords["start"]["y"])
-            end_px_x = int(coords["end"]["x"])
-            end_px_y = int(coords["end"]["y"])
-
-            for px_x in range(start_px_x, end_px_x + 1):
-                for px_y in range(start_px_y, end_px_y + 1):
-                    gx = px_x // grid_size
-                    gy = px_y // grid_size
-
-                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
-                        venue_grid[gy][gx] = 0
-
-
-    return venue_grid.tolist()
 
 
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
-# Mapping between iOS beacon IDs and Android MAC addresses
-BEACON_MAC_MAP = {
-    "14b00739": "00:FA:B6:2F:50:8C",
-    "14b6072G": "00:FA:B6:2F:51:28",
-    "14b7072H": "00:FA:B6:2F:51:25",
-    "14bC072N": "00:FA:B6:2F:51:16",
-    "14bE072Q": "00:FA:B6:2F:51:10",
-    "14bF072R": "00:FA:B6:2F:51:0D",
-    "14bK072V": "00:FA:B6:2F:51:01",
-    "14bM072X": "00:FA:B6:2F:50:FB",
-    "14j006gQ": "00:FA:B6:31:02:BA",
-    "14j606Gv": "00:FA:B6:31:12:F8",
-    "14j706Gw": "00:FA:B6:31:12:F5",
-    "14j706gX": "00:FA:B6:31:02:A5",
-    "14j906Gy": "00:FA:B6:31:12:EF",
-    "14jd06i0": "00:FA:B6:31:01:A0",
-    "14jj06i6": "00:FA:B6:31:01:8E",
-    "14jr06gF": "00:FA:B6:31:02:D5",
-    "14jr08Ef": "00:FA:B6:30:C2:F1",
-    "14js06gG": "00:FA:B6:31:02:D2",
-    "14jv06gK": "00:FA:B6:31:02:C9",
-    "14jw08Ek": "00:FA:B6:30:C2:E2"
-}
-
-# Create reverse mapping (MAC to ID)
-MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
-
-# Beacon positions (using iOS IDs for consistency with frontend)
 BEACON_POSITIONS = {
-    "14j906Gy": (0, 0),
-    "14jr08Ef": (1, 0),
-    "14j606Gv": (0, 1)
+    "17091": (0, 0),
+    "15995":(1,0),
+    "25450":(0,1)
 }
 
 # ====== Models ======
@@ -142,26 +53,6 @@ class PathRequest(BaseModel):
     from_: List[int]
     to: str
 
-class CalibrationRequest(BaseModel):
-    beacon1_id: str
-    beacon2_id: str
-    known_distance_meters: float
-
-# Function to convert RSSI to physical distance in meters
-def rssi_to_distance(rssi: int, tx_power: int = -59, path_loss_exponent: float = 2.0) -> float:
-    """
-    Convert RSSI value to physical distance in meters
-    
-    Args:
-        rssi: The RSSI value (in dBm)
-        tx_power: Calibrated signal strength at 1 meter (default: -59 dBm)
-        path_loss_exponent: Environment-specific attenuation factor (default: 2.0 for free space)
-        
-    Returns:
-        Estimated distance in meters
-    """
-    return math.pow(10, (tx_power - rssi) / (10 * path_loss_exponent))
-
 # ====== API ======
 @app.post("/locate")
 def locate_user(data: BLEScan):
@@ -170,18 +61,9 @@ def locate_user(data: BLEScan):
     total_weight = 0
 
     for reading in data.ble_data:
-        # Check if the UUID is a MAC address and map it if necessary
-        beacon_id = reading.uuid
-        if ":" in reading.uuid:  # This is likely a MAC address
-            beacon_id = MAC_TO_ID_MAP.get(reading.uuid, reading.uuid)
-        
-        pos = BEACON_POSITIONS.get(beacon_id)
+        pos = BEACON_POSITIONS.get(reading.uuid)
         if pos:
-            # Convert RSSI to distance in meters
-            distance_meters = rssi_to_distance(reading.rssi)
-            # Convert weight based on physical distance (inverse square law)
-            weight = 1 / max(0.1, distance_meters ** 2)
-            
+            weight = 1 / (abs(reading.rssi) + 1)
             weighted_sum_x += pos[0] * weight
             weighted_sum_y += pos[1] * weight
             total_weight += weight
@@ -244,8 +126,8 @@ def get_path(request: PathRequest):
 
 
 @app.get("/booths")
-def get_all_booths():
-    return booth_data
+def get_booths():
+    return JSONResponse(content=booth_data)
 
 @app.get("/booths/{booth_id}")
 def get_booth_by_id(booth_id: int):
@@ -254,73 +136,7 @@ def get_booth_by_id(booth_id: int):
 
 @app.get("/map-data")
 def get_map_data():
-    visual_elements = []
-
-    for booth in booth_data:
-        visual_elements.append({
-            "name": booth["name"],
-            "type": booth["type"],
-            "start": booth["area"]["start"],
-            "end": booth["area"]["end"]
-        })
-
-    return JSONResponse(content={"elements": visual_elements})
-
-@app.get("/config")
-def get_config():
-    """Provide configuration data for the mobile app, including beacon positions and mapping."""
-    return {
-        "beaconPositions": {id: {"x": pos[0], "y": pos[1]} for id, pos in BEACON_POSITIONS.items()},
-        "beaconIdMapping": BEACON_MAC_MAP,
-        "gridCellSize": CELL_SIZE,  # pixels per grid cell
-        "metersToGridFactor": METERS_TO_GRID_FACTOR,  # conversion factor for physical distance
-        "txPower": -59  # Default reference RSSI at 1m
-    }
-
-@app.post("/calibrate")
-def calibrate_system(data: CalibrationRequest):
-    """
-    Calibrate the system based on a known physical distance between two beacons
-    
-    This endpoint updates the METERS_TO_GRID_FACTOR based on the provided information
-    """
-    global METERS_TO_GRID_FACTOR
-    
-    # Get beacon positions
-    beacon1_pos = BEACON_POSITIONS.get(data.beacon1_id)
-    beacon2_pos = BEACON_POSITIONS.get(data.beacon2_id)
-    
-    if not beacon1_pos or not beacon2_pos:
-        return JSONResponse(
-            content={"error": "One or both beacon IDs not found"}, 
-            status_code=400
-        )
-    
-    # Calculate grid distance between beacons
-    dx = beacon2_pos[0] - beacon1_pos[0]
-    dy = beacon2_pos[1] - beacon1_pos[1]
-    grid_distance = math.sqrt(dx**2 + dy**2)
-    
-    # Ensure we have a valid physical distance
-    if data.known_distance_meters <= 0:
-        return JSONResponse(
-            content={"error": "Physical distance must be greater than zero"}, 
-            status_code=400
-        )
-    
-    # Calculate new meters-to-grid factor
-    new_factor = grid_distance / data.known_distance_meters
-    
-    # Update the global factor
-    METERS_TO_GRID_FACTOR = new_factor
-    
-    return {
-        "success": True,
-        "previousFactor": METERS_TO_GRID_FACTOR,
-        "newFactor": new_factor,
-        "gridDistance": grid_distance,
-        "physicalDistance": data.known_distance_meters
-    }
+    return JSONResponse(content={"elements": booth_data})
 
 # ====== A* Algorithm ======
 def a_star(start, goal):
@@ -358,7 +174,7 @@ def a_star(start, goal):
                         ))
 
     return []
-    
+
 @app.get("/")
 def root():
     return {"message": "InMaps backend is running!"}
