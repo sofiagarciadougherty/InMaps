@@ -16,6 +16,7 @@ import './utils/smoothed_position.dart';
 import './utils/fused_position.dart';
 import './utils/vector2d.dart';
 import './utils/unit_converter.dart';
+import './ble_scanner_service.dart';  // Added missing import
 
 // Choose a teal color for buttons.
 const Color kTealColor = Color(0xFF008C9E);
@@ -23,6 +24,8 @@ const Color kTealColor = Color(0xFF008C9E);
 void main() => runApp(NavigationApp());
 
 class NavigationApp extends StatelessWidget {
+  const NavigationApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -34,6 +37,8 @@ class NavigationApp extends StatelessWidget {
 }
 
 class BLEScannerPage extends StatefulWidget {
+  const BLEScannerPage({super.key});
+
   @override
   _BLEScannerPageState createState() => _BLEScannerPageState();
 }
@@ -78,7 +83,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   List<Beacon> beaconList = [];
   late SmoothedPositionTracker blePositionTracker;
   late FusedPositionTracker positionTracker;
-  Vector2D currentPosition = Vector2D(0, 0);
+  Vector2D currentPosition = const Vector2D(0, 0);
 
   // Path request throttling
   DateTime _lastPathRequest = DateTime.now();
@@ -86,7 +91,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // Movement detection
   bool _isMoving = false;
-  Vector2D _lastSignificantPosition = Vector2D(0, 0);
+  Vector2D _lastSignificantPosition = const Vector2D(0, 0);
   static const double _movementThreshold = 15.0; // pixels
 
   final flutterReactiveBle = FlutterReactiveBle();
@@ -106,11 +111,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
     // Initialize fused position tracker with BLE base
     positionTracker = FusedPositionTracker(
-      bleTracker: blePositionTracker,
-      bleWeight: 0.7,
-      imuWeight: 0.3,
-      driftThreshold: 50.0,
-      intervalMs: 100,
+      bleScanner: BLEScannerService(),
+      initialPosition: const Vector2D(0, 0),
+      useSimulators: false,
+      updateIntervalMs: 100,
+      debugMode: true,
     );
 
     // Subscribe to position updates
@@ -203,8 +208,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           final positions = data['beaconPositions'] as Map<String, dynamic>;
           final gridCellSize = data['gridCellSize'] ?? 50;
           beaconIdToPosition = positions.map((key, value) => MapEntry(key, [
-                (value['x'] as num).toInt() * gridCellSize,
-                (value['y'] as num).toInt() * gridCellSize
+                ((value['x'] as num).toInt() * gridCellSize).toInt(),
+                ((value['y'] as num).toInt() * gridCellSize).toInt()
               ]));
 
           // Parse beacon ID mapping
@@ -303,7 +308,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   Future<void> requestPath(String boothName) async {
     if (boothName.trim().isEmpty ||
         userLocation.isEmpty ||
-        !userLocation.contains(",")) return;
+        !userLocation.contains(",")) {
+      return;
+    }
 
     final gridCoords = converter.positionToBackendGrid(currentPosition);
     try {
@@ -349,7 +356,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: gridCoords,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
-          positionTracker: positionTracker,
         ),
       ),
     );
@@ -439,35 +445,35 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 children: [
                   Row(
                     children: [
-                      Text(
+                      const Text(
                         'Current Position:',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       // Show movement indicator
                       if (_isMoving)
                         Container(
                           padding:
-                              EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.blue,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Text(
+                          child: const Text(
                             'Moving',
                             style: TextStyle(fontSize: 10, color: Colors.white),
                           ),
                         ),
                     ],
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                       'X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
                   Text(
                       'Grid: ${converter.positionToGridCoords(currentPosition)[0]}, ${converter.positionToGridCoords(currentPosition)[1]}'),
                   Text(
                       'Meters: ${converter.pixelsToMeters(currentPosition.x).toStringAsFixed(1)}m, ${converter.pixelsToMeters(currentPosition.y).toStringAsFixed(1)}m'),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text('Detected beacons: ${beaconList.length}'),
                 ],
               ),
@@ -478,7 +484,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: startScan,
+                onPressed: _startScanning,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
                   foregroundColor: Colors.white,
@@ -574,11 +580,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Beacon Information:',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     ...beaconList.map((beacon) {
                       final distance = rssiToDistance(
                           beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
@@ -587,7 +593,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                         padding: const EdgeInsets.only(bottom: 4.0),
                         child: Text(
                           '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m / ${gridDistance.toStringAsFixed(1)} grid)',
-                          style: TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 14),
                         ),
                       );
                     }),
@@ -597,7 +603,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
             // Movement Debugging Panel
             Container(
-              margin: EdgeInsets.only(top: 10),
+              margin: const EdgeInsets.only(top: 10),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.amber[50],
@@ -607,15 +613,15 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  const Text(
                     'Hybrid Positioning System:',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text('Status: ${_isMoving ? "Moving" : "Stationary"}'),
                   Text(
                       'Positioning Mode: ${_isMoving ? "BLE+IMU Fusion" : "BLE Multilateration"}'),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   ElevatedButton(
                     onPressed: () {
                       setState(() {
@@ -624,7 +630,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                       });
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: kTealColor),
-                    child: Text('Refresh Beacons'),
+                    child: const Text('Refresh Beacons'),
                   ),
                 ],
               ),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import './sensor_simulator.dart';
 
 /// Event representing a detected step with its characteristics
 class StepEvent {
@@ -46,6 +47,7 @@ class StepDetector {
   
   // Subscription to accelerometer
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
+  StreamSubscription<StepEvent>? _simulatedStepSubscription;
   
   // Step pattern recognition
   bool _isPotentialStep = false;
@@ -53,31 +55,53 @@ class StepDetector {
   double _lastTroughAcceleration = 0;
   DateTime _lastStepTime = DateTime.now();
   
+  // Emulator detection
+  final bool _useSimulator;
+  final SensorSimulator _simulator = SensorSimulator();
+  
   StepDetector({
     double accelerationThreshold = 1.8,
     double minStepIntervalMs = 250.0, // minimum 250ms between steps (max 4 steps/second)
     double maxStepIntervalMs = 2000.0, // maximum 2s between steps
     int windowSize = 10,
+    bool? useSimulator,
   }) : _accelerationThreshold = accelerationThreshold,
        _minStepInterval = minStepIntervalMs,
        _maxStepInterval = maxStepIntervalMs,
-       _windowSize = windowSize;
+       _windowSize = windowSize,
+       _useSimulator = useSimulator ?? false;
   
   void start() {
     if (_isRunning) return;
     _isRunning = true;
     
-    // Subscribe to accelerometer events
-    _accelerometerSubscription = accelerometerEvents.listen(_processAccelerometerEvent);
-    debugPrint('👟 StepDetector started');
+    if (_useSimulator) {
+      // Use simulated sensors
+      _simulator.setEnabled(true);
+      _simulatedStepSubscription = _simulator.stepStream.listen((stepEvent) {
+        _stepController.add(stepEvent);
+      });
+      _accelerometerSubscription = _simulator.accelerometerStream.listen(_processAccelerometerEvent);
+      debugPrint('👟 StepDetector started with simulator');
+    } else {
+      // Use real sensors
+      _accelerometerSubscription = accelerometerEvents.listen(_processAccelerometerEvent);
+      debugPrint('👟 StepDetector started with real sensors');
+    }
   }
   
   void stop() {
     if (!_isRunning) return;
     _isRunning = false;
     
+    if (_useSimulator) {
+      _simulator.setEnabled(false);
+    }
+    
     _accelerometerSubscription?.cancel();
     _accelerometerSubscription = null;
+    _simulatedStepSubscription?.cancel();
+    _simulatedStepSubscription = null;
     debugPrint('⏹️ StepDetector stopped');
   }
   
@@ -189,7 +213,7 @@ class StepDetector {
     _stepTimestamps.add(now);
     
     // Keep only recent steps for frequency calculation
-    final maxStepHistory = 5;
+    const maxStepHistory = 5;
     while (_stepTimestamps.length > maxStepHistory) {
       _stepTimestamps.removeAt(0);
     }
@@ -206,7 +230,7 @@ class StepDetector {
     }
     
     // Adjust step length based on frequency (faster walking = longer steps)
-    final baseStepLength = 0.7; // Base step length in meters
+    const baseStepLength = 0.7; // Base step length in meters
     final frequencyFactor = _averageStepFrequency / 1.8; // Normalized to typical walking frequency
     final stepLength = baseStepLength * sqrt(frequencyFactor).clamp(0.7, 1.3);
     
@@ -232,5 +256,20 @@ class StepDetector {
     debugPrint('👣 Step detected! Strength: ${stepStrength.toStringAsFixed(1)}, '
                'Frequency: ${_averageStepFrequency.toStringAsFixed(1)} steps/s, '
                'Length: ${stepLength.toStringAsFixed(2)}m');
+  }
+  
+  // Manually trigger a step (for simulation testing)
+  void simulateStep({double stepLength = 0.7}) {
+    if (_useSimulator) {
+      _simulator.simulateStep(stepLength: stepLength);
+    } else {
+      final stepEvent = StepEvent(
+        timestamp: DateTime.now(),
+        stepLength: stepLength,
+        confidence: 0.9,
+        acceleration: 5.0,
+      );
+      _stepController.add(stepEvent);
+    }
   }
 }
