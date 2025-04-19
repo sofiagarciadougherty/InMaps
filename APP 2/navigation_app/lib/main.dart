@@ -13,7 +13,9 @@ import './map_screen.dart';
 import './models/beacon.dart';
 import './utils/positioning.dart';
 import './utils/smoothed_position.dart';
+import './utils/fused_position.dart';
 import './utils/vector2d.dart';
+import './utils/unit_converter.dart';
 
 // Choose a teal color for buttons.
 const Color kTealColor = Color(0xFF008C9E);
@@ -47,6 +49,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   ];
   String _selectedEvent = ""; // chosen event from dropdown
 
+  // Unit converter
+  final UnitConverter converter = UnitConverter();
+
   // ---------------- Booths (fetched from backend) ----------------
   List<String> boothNames = [];
   String selectedBooth = "";
@@ -64,20 +69,25 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   Map<String, List<int>> beaconIdToPosition = {};
   Map<String, String> beacon_mac_map = {};
   Map<String, String> mac_to_id_map = {};
-  int gridCellSize = 50;
-  int pixelsPerMeter = 40;
   bool isConfigLoaded = false;
 
-  // Calibration variables - still needed for conversion but not exposed in UI
-  double metersToGridFactor = 2.0;  // Default, will be updated from backend
-  int txPower = -59;  // Default reference power at 1m
+  // Calibration variables
+  int txPower = -59; // Default reference power at 1m
 
-
-  // New positioning system with smoothing
+  // New positioning system with smoothing and fusion
   List<Beacon> beaconList = [];
-  late SmoothedPositionTracker positionTracker;
+  late SmoothedPositionTracker blePositionTracker;
+  late FusedPositionTracker positionTracker;
   Vector2D currentPosition = Vector2D(0, 0);
 
+  // Path request throttling
+  DateTime _lastPathRequest = DateTime.now();
+  static const Duration _pathRequestThreshold = Duration(milliseconds: 1000);
+
+  // Movement detection
+  bool _isMoving = false;
+  Vector2D _lastSignificantPosition = Vector2D(0, 0);
+  static const double _movementThreshold = 15.0; // pixels
 
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
@@ -91,17 +101,44 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       debugPrint("Bluetooth status: $status");
     });
 
-    // Initialize position tracker with smoothing
-    positionTracker = SmoothedPositionTracker(alpha: 0.85, intervalMs: 500);
+    // Initialize BLE position tracker
+    blePositionTracker = SmoothedPositionTracker(alpha: 0.8, intervalMs: 800);
+
+    // Initialize fused position tracker with BLE base
+    positionTracker = FusedPositionTracker(
+      bleTracker: blePositionTracker,
+      bleWeight: 0.7,
+      imuWeight: 0.3,
+      driftThreshold: 50.0,
+      intervalMs: 100,
+    );
+
+    // Subscribe to position updates
     _positionSubscription = positionTracker.positionStream.listen((position) {
+      // Check if significant movement has occurred
+      final distanceMoved = Vector2D.distance(position, _lastSignificantPosition);
+      final isSignificantMovement = distanceMoved > _movementThreshold;
+
       setState(() {
         currentPosition = position;
-        userLocation = "${position.x.round()}, ${position.y.round()}";
+        userLocation = converter.formatPositionForDisplay(position);
+
+        // Update movement status for UI feedback
+        if (isSignificantMovement) {
+          _isMoving = true;
+          _lastSignificantPosition = position;
+        } else {
+          _isMoving = false;
+        }
       });
 
       // Request path automatically when location updates and booth is selected
       if (selectedBooth.isNotEmpty) {
-        requestPath(selectedBooth);
+        final now = DateTime.now();
+        if (now.difference(_lastPathRequest) > _pathRequestThreshold) {
+          _lastPathRequest = now;
+          requestPath(selectedBooth);
+        }
       }
     });
 
@@ -134,9 +171,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           rssi: rssi,
           baseRssi: txPower,
           position: Position(
-              x: position[0].toDouble(),
-              y: position[1].toDouble()
-          ),
+              x: position[0].toDouble(), y: position[1].toDouble()),
         ));
       }
     });
@@ -147,11 +182,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
     // Update the position tracker with new beacon data
     positionTracker.updateBeacons(beaconList);
-    positionTracker.updateCalibration(metersToGridFactor);
 
     // Add debug logging
     if (beaconList.isNotEmpty) {
-      debugPrint("🔍 Current beacons: ${beaconList.map((b) => '${b.id}: (${b.position?.x}, ${b.position?.y})').join(', ')}");
+      debugPrint(
+          "🔍 Current beacons: ${beaconList.map((b) => '${b.id}: (${b.position?.x}, ${b.position?.y})').join(', ')}");
     }
   }
 
@@ -166,12 +201,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
           // Parse beacon positions
           final positions = data['beaconPositions'] as Map<String, dynamic>;
-          beaconIdToPosition = positions.map((key, value) =>
-              MapEntry(key, [
+          final gridCellSize = data['gridCellSize'] ?? 50;
+          beaconIdToPosition = positions.map((key, value) => MapEntry(key, [
                 (value['x'] as num).toInt() * gridCellSize,
                 (value['y'] as num).toInt() * gridCellSize
-              ])
-          );
+              ]));
 
           // Parse beacon ID mapping
           beacon_mac_map = Map<String, String>.from(data['beaconIdMapping']);
@@ -181,16 +215,24 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           });
 
           // Parse scale factors and calibration values
-          gridCellSize = data['gridCellSize'] ?? 50;
-          metersToGridFactor = (data['metersToGridFactor'] ?? 2.0).toDouble();
+          final pixelsPerGridCell = (data['gridCellSize'] ?? 50).toDouble();
+          final metersToGridFactor =
+              (data['metersToGridFactor'] ?? 2.0).toDouble();
           txPower = data['txPower'] ?? -59;
+
+          // Configure the central unit converter
+          converter.configure(
+            pixelsPerGridCell: pixelsPerGridCell,
+            metersToGridFactor: metersToGridFactor,
+          );
 
           isConfigLoaded = true;
           debugPrint("✅ Configuration loaded from backend");
-          debugPrint("📏 Meters to Grid Factor: $metersToGridFactor");
+          debugPrint(
+              "📏 Meters to Grid Factor: ${converter.metersToGridFactor}");
 
           // Update calibration in the position tracker
-          positionTracker.updateCalibration(metersToGridFactor);
+          positionTracker.updateCalibration(converter.metersToGridFactor);
         });
       } else {
         debugPrint("❌ Failed to load configuration: ${response.statusCode}");
@@ -241,146 +283,34 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         mac_to_id_map[mac] = id;
       });
 
-      metersToGridFactor = 2.0; // Default value
+      // Configure with default values
+      converter.configure(
+        pixelsPerGridCell: 50.0,
+        metersToGridFactor: 2.0,
+      );
+
       txPower = -59; // Default reference power at 1m
 
       isConfigLoaded = true;
       debugPrint("⚠️ Using default configuration");
-    });
-  }
 
-  // Update the way we estimate distance using the proper path loss model
-  double estimateDistance(int rssi, int txPower) =>
-      pow(10, (txPower - rssi) / (10 * 2.0)).toDouble();  // Using path loss exponent of 2.0
-
-  // Flag to track connection status
-  bool hasShownConnectedPopup = false;
-
-  void startScan() async {
-    if (!isConfigLoaded) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: Colors.teal[50],
-          title: const Text(
-            "Configuration Loading",
-            style: TextStyle(color: kTealColor, fontWeight: FontWeight.bold),
-          ),
-          content: const Text(
-            "Please wait while the configuration is loading...",
-            style: TextStyle(color: Colors.black87),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: kTealColor,
-              ),
-              onPressed: () => Navigator.pop(context),
-              child: const Text("OK"),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    await _scanSubscription?.cancel();
-    setState(() {
-      scannedDevices.clear();
-      hasShownConnectedPopup = false;
-    });
-
-    _scanSubscription = flutterReactiveBle.scanForDevices(
-      withServices: [],
-      scanMode: ScanMode.lowLatency,
-    ).listen((device) {
-      // Debug information
-      debugPrint("Found device: ${device.name}, ID: ${device.id}");
-
-      String? beaconId;
-
-      // Process Kontakt beacons
-      if (device.name.toLowerCase() == "kontakt") {
-        if (Platform.isAndroid) {
-          // For Android: Check if the MAC address is in our mapping
-          if (mac_to_id_map.containsKey(device.id)) {
-            beaconId = mac_to_id_map[device.id];
-            debugPrint("✓ Android: Mapped MAC ${device.id} to ID $beaconId");
-          }
-        }
-
-        // For both platforms: Try to extract ID from service data
-        if (device.serviceData.containsKey(Uuid.parse("FE6A"))) {
-          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
-          final asciiBytes = rawData.sublist(13);
-          final extractedId = String.fromCharCodes(asciiBytes);
-
-          debugPrint("Extracted ID from service data: $extractedId");
-
-          // On iOS we use the extracted ID directly
-          if (Platform.isIOS || beaconId == null) {
-            beaconId = extractedId;
-          }
-        }
-
-        // Process the beacon if we've identified it
-        if (beaconId != null && beaconIdToPosition.containsKey(beaconId)) {
-          setState(() {
-            scannedDevices[beaconId!] = device.rssi;
-          });
-
-          // Update the beacon list with the new RSSI data
-          _updateBeaconList();
-
-          debugPrint("📶 Beacon: $beaconId, RSSI: ${device.rssi}");
-
-          // Trigger connected popup exactly once
-          if (scannedDevices.length >= 3 && !hasShownConnectedPopup) {
-            hasShownConnectedPopup = true;
-
-            showDialog(
-              context: context,
-              builder: (_) => AlertDialog(
-                backgroundColor: Colors.teal[50],
-                title: const Text(
-                  "Connected",
-                  style: TextStyle(color: kTealColor, fontWeight: FontWeight.bold),
-                ),
-                content: const Text(
-                  "Successfully connected to the event.",
-                  style: TextStyle(color: Colors.black87),
-                ),
-                actions: [
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: kTealColor,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text("OK"),
-                  ),
-                ],
-              ),
-            );
-          }
-        }
-      }
-    }, onError: (error) {
-      debugPrint("❌ Scan error: $error");
+      // Update calibration in the position tracker
+      positionTracker.updateCalibration(converter.metersToGridFactor);
     });
   }
 
   // ------------------- Request Path -------------------
   Future<void> requestPath(String boothName) async {
-    if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
+    if (boothName.trim().isEmpty ||
+        userLocation.isEmpty ||
+        !userLocation.contains(",")) return;
 
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
+    final gridCoords = converter.positionToBackendGrid(currentPosition);
     try {
       final response = await http.post(
         Uri.parse('$backendUrl/path'),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"from_": start, "to": boothName}),
+        body: jsonEncode({"from_": gridCoords, "to": boothName}),
       );
 
       if (response.statusCode == 200) {
@@ -393,7 +323,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         if (path.isEmpty) {
           debugPrint("⚠️ No path found to $boothName.");
         } else {
-          debugPrint("🧭 Path to $boothName: ${path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")}");
+          debugPrint(
+              "🧭 Path to $boothName: ${path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")}");
         }
       }
     } catch (e) {
@@ -406,9 +337,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
     // Convert the current position to grid coordinates
-    final gridX = (currentPosition.x / gridCellSize).round();
-    final gridY = (currentPosition.y / gridCellSize).round();
-    final start = [gridX, gridY];
+    final gridCoords = converter.positionToGridCoords(currentPosition);
 
     final heading = await FlutterCompass.events!.first;
 
@@ -417,9 +346,10 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       MaterialPageRoute(
         builder: (_) => MapScreen(
           path: currentPath,
-          startLocation: start,
+          startLocation: gridCoords,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
+          positionTracker: positionTracker,
         ),
       ),
     );
@@ -507,12 +437,36 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Current Position:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Text(
+                        'Current Position:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(width: 8),
+                      // Show movement indicator
+                      if (_isMoving)
+                        Container(
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Moving',
+                            style: TextStyle(fontSize: 10, color: Colors.white),
+                          ),
+                        ),
+                    ],
                   ),
                   SizedBox(height: 4),
-                  Text('X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
+                  Text(
+                      'X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
+                  Text(
+                      'Grid: ${converter.positionToGridCoords(currentPosition)[0]}, ${converter.positionToGridCoords(currentPosition)[1]}'),
+                  Text(
+                      'Meters: ${converter.pixelsToMeters(currentPosition.x).toStringAsFixed(1)}m, ${converter.pixelsToMeters(currentPosition.y).toStringAsFixed(1)}m'),
                   SizedBox(height: 4),
                   Text('Detected beacons: ${beaconList.length}'),
                 ],
@@ -557,7 +511,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 });
                 requestPath(selection); // Automatically request path
               },
-              fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+              fieldViewBuilder:
+                  (context, controller, focusNode, onEditingComplete) {
                 controller.text = selectedBooth;
                 return TextField(
                   controller: controller,
@@ -625,11 +580,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                     ),
                     SizedBox(height: 8),
                     ...beaconList.map((beacon) {
-                      final distance = rssiToDistance(beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
+                      final distance = rssiToDistance(
+                          beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
+                      final gridDistance = converter.metersToGrid(distance);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4.0),
                         child: Text(
-                          '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m)',
+                          '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m / ${gridDistance.toStringAsFixed(1)} grid)',
                           style: TextStyle(fontSize: 14),
                         ),
                       );
@@ -637,7 +594,41 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   ],
                 ),
               ),
-            const SizedBox(height: 12),
+
+            // Movement Debugging Panel
+            Container(
+              margin: EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Hybrid Positioning System:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 4),
+                  Text('Status: ${_isMoving ? "Moving" : "Stationary"}'),
+                  Text(
+                      'Positioning Mode: ${_isMoving ? "BLE+IMU Fusion" : "BLE Multilateration"}'),
+                  SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        // Start scanning for BLE devices
+                        _startScanning();
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: kTealColor),
+                    child: Text('Refresh Beacons'),
+                  ),
+                ],
+              ),
+            ),
 
             // 7) Game Mode (Navigate to GameScreen)
             SizedBox(
@@ -667,6 +658,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         ),
       ),
     );
+  }
+
+  // ------------------- Start BLE Scanning -------------------
+  void _startScanning() async {
+    await _scanSubscription?.cancel();
+
+    if (Platform.isIOS) {
+      // ...existing code...
+    } else if (Platform.isAndroid) {
+      // ...existing code...
+    }
   }
 }
 
