@@ -10,6 +10,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:navigation_app/models/beacon.dart';
 import 'package:navigation_app/utils/positioning.dart';
 import './utils/vector2d.dart';
+import './utils/unit_converter.dart';
 
 // Global variable to preserve total points between screen navigations.
 int globalTotalPoints = 0;
@@ -25,6 +26,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- BLE & Positioning ----------------
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
+
+  // Use the singleton unit converter for consistent conversions
+  final UnitConverter converter = UnitConverter();
 
   /// Mapping of known beacon IDs to their [x, y] positions.
   final Map<String, List<int>> beaconIdToPosition = {
@@ -137,9 +141,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       }
     });
 
-    // Use the utils version of multilaterate
+    // Use the utils version of multilaterate with consistent metersToGridFactor
     if (beacons.isNotEmpty) {
-      final position = multilaterate(beacons, 1.0); // Use 1.0 as metersToGridFactor since we're already in grid units
+      final position = multilaterate(beacons, converter.metersToGridFactor);
       if (mounted) {
         setState(() => userLocation = "${position['x']!.round()}, ${position['y']!.round()}");
       }
@@ -203,7 +207,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (parts.length < 2) return;
     final userX = double.tryParse(parts[0].trim()) ?? 0;
     final userY = double.tryParse(parts[1].trim()) ?? 0;
-    const proximityThreshold = 5.0; // Adjust threshold as needed.
+
+    // Use a proximity threshold in pixels based on grid units
+    final proximityThresholdGridUnits = 0.1; // Adjust as needed
+    final proximityThreshold = converter.gridToPixels(proximityThresholdGridUnits);
 
     for (var task in tasks) {
       if (!task["completed"]) {
@@ -265,9 +272,22 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- Navigate to Map Screen for the Selected Task ----------------
   Future<void> _navigateToTask(Map<String, dynamic> task) async {
     if (userLocation.isEmpty) return;
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
+
+    // Convert pixel position to grid coordinates using the converter
+    final userParts = userLocation.split(",");
+    if (userParts.length < 2) return;
+
+    final userPixelX = double.tryParse(userParts[0].trim()) ?? 0;
+    final userPixelY = double.tryParse(userParts[1].trim()) ?? 0;
+
+    // Convert to grid coordinates for the backend
+    final gridX = converter.pixelsToGrid(userPixelX).round();
+    final gridY = converter.pixelsToGrid(userPixelY).round();
+    final start = [gridX, gridY];
+
     final heading = await FlutterCompass.events!.first;
     final headingDegrees = heading.heading ?? 0.0;
+
     try {
       final response = await http.post(
         Uri.parse('https://inmaps.onrender.com/path'),
@@ -284,6 +304,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           return;
         }
         debugPrint("Navigating to MapScreen with path: $path and start: $start");
+
+        // Pass the vector position in pixels to the map
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -291,10 +313,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               path: List<List<dynamic>>.from(path),
               startLocation: start,
               headingDegrees: headingDegrees,
-              initialPosition: Vector2D(
-                start[0] * 50.0,
-                start[1] * 50.0,
-              ),
+              initialPosition: Vector2D(userPixelX, userPixelY),
             ),
           ),
         ).then((_) {
@@ -338,9 +357,47 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: const Text(
-                  "Game Tasks:",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Game Tasks:",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    // Show current position with units
+                    if (userLocation.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue[200]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Current Position: $userLocation (pixels)",
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            if (userLocation.contains(",")) Builder(
+                              builder: (context) {
+                                final parts = userLocation.split(",");
+                                if (parts.length >= 2) {
+                                  final x = double.tryParse(parts[0].trim()) ?? 0;
+                                  final y = double.tryParse(parts[1].trim()) ?? 0;
+                                  return Text(
+                                    "Grid: (${converter.pixelsToGrid(x).toStringAsFixed(1)}, ${converter.pixelsToGrid(y).toStringAsFixed(1)})",
+                                  );
+                                }
+                                return const SizedBox();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 10),
@@ -381,6 +438,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                             Text(t["category"] ?? "Visit"),
                             Text(t["completed"] ? "✅ Completed" : "🕓 Pending"),
                             Text("Reward: ${t["points"]} pts"),
+                            Text(
+                              "Position: (${t["x"].toInt()}, ${t["y"].toInt()}) px",
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
                           ],
                         ),
                       ),
