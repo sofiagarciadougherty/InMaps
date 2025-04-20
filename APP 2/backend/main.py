@@ -21,76 +21,68 @@ METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
     booths = []
-    print("📦 Loading booths from CSV...")
+    print("📦 Loading booths from CSV…")
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
-            continue
         try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
+            # Parse rectangle corners
+            start_x = float(row["Start_X"])
+            start_y = float(row["Start_Y"])
+            end_x   = float(row["End_X"])
+            end_y   = float(row["End_Y"])
+            # Parse the center-point tuple "(x, y)"
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
-            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
+            print(f"⚠️ Skipping row due to parse error: {e}")
             continue
 
-        if "blocker" in row["Name"].lower():
+        name = row["Name"].strip()
+        # Classify type (adjust as needed)
+        if "blocker" in name.lower():
             booth_type = "blocker"
-        elif "booth" in row["Name"].lower():
+        elif "booth" in name.lower():
             booth_type = "booth"
         else:
-            booth_type = "other"  # default/fallback for stuff like bathroom
-
-        name = row["Name"].strip()
-
-        print(f"✅ Loaded booth: {name} ({booth_type})")
+            booth_type = "other"
 
         booths.append({
-            "booth_id": int(row["Booth ID"]),
-            "name": name,
-            "type": booth_type,
+            "booth_id":   int(row["ID"]),
+            "name":       name,
+            "type":       booth_type,
+            "description": row.get("Description", "No description available"),
             "area": {
-                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
-                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
+                "start": {"x": start_x, "y": start_y},
+                "end":   {"x": end_x,   "y": end_y},
             },
-            "center": {"x": center[0], "y": center[1]}
+            "center": {"x": center[0], "y": center[1]},
         })
+        print(f"✅ Loaded booth: {name} ({booth_type})")
+
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
 def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
     df = pd.read_csv(csv_path)
-    grid_width = canvas_width // grid_size
-    grid_height = canvas_height // grid_size
-    venue_grid = np.ones((grid_height, grid_width), dtype=int)
+    gw = canvas_width  // grid_size
+    gh = canvas_height // grid_size
+    grid = np.ones((gh, gw), dtype=int)
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            continue
         try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
-        except Exception:
+            sx = int(float(row["Start_X"]))
+            sy = int(float(row["Start_Y"]))
+            ex = int(float(row["End_X"]))
+            ey = int(float(row["End_Y"]))
+        except:
             continue
 
-        # Mark all types as obstacles
-        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(coords["start"]["x"])
-            start_px_y = int(coords["start"]["y"])
-            end_px_x = int(coords["end"]["x"])
-            end_px_y = int(coords["end"]["y"])
+        for px in range(sx, ex+1):
+          for py in range(sy, ey+1):
+            gx, gy = px // grid_size, py // grid_size
+            if 0 <= gx < gw and 0 <= gy < gh:
+                grid[gy][gx] = 0
 
-            for px_x in range(start_px_x, end_px_x + 1):
-                for px_y in range(start_px_y, end_px_y + 1):
-                    gx = px_x // grid_size
-                    gy = px_y // grid_size
-
-                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
-                        venue_grid[gy][gx] = 0
-
-
-    return venue_grid.tolist()
+    return grid.tolist()
 
 
 booth_data = load_booth_data(CSV_PATH)
@@ -255,15 +247,14 @@ def get_booth_by_id(booth_id: int):
 @app.get("/map-data")
 def get_map_data():
     visual_elements = []
-
     for booth in booth_data:
         visual_elements.append({
-            "name": booth["name"],
-            "type": booth["type"],
-            "start": booth["area"]["start"],
-            "end": booth["area"]["end"]
+            "name":        booth["name"],
+            "type":        booth["type"],
++       "description": booth["description"],
+            "start":       booth["area"]["start"],
+            "end":         booth["area"]["end"]
         })
-
     return JSONResponse(content={"elements": visual_elements})
 
 @app.get("/config")

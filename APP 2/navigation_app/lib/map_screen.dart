@@ -40,6 +40,9 @@ class _MapScreenState extends State<MapScreen> {
   Offset basePosition = Offset.zero;
   static const double cellSize = 40.0;
 
+  // Controller to convert tap coordinates into scene coordinates
+  final TransformationController _transformationController = TransformationController();
+
   @override
   void initState() {
     super.initState();
@@ -69,9 +72,17 @@ class _MapScreenState extends State<MapScreen> {
           imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
           imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
         );
-        print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x/cellSize).toStringAsFixed(2)}m, ${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
+        print("🦶 Step \$stepCount → IMU Offset: (\${(imuOffset.x/cellSize).toStringAsFixed(2)}m, \${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _headingSub?.cancel();
+    _accelSub?.cancel();
+    _transformationController.dispose();
+    super.dispose();
   }
 
   Future<void> fetchMapData() async {
@@ -79,8 +90,8 @@ class _MapScreenState extends State<MapScreen> {
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        final fetchedElements = json["elements"];
+        final jsonBody = jsonDecode(response.body);
+        final fetchedElements = jsonBody["elements"];
         double maxXLocal = 0, maxYLocal = 0;
         for (var el in fetchedElements) {
           final start = el["start"];
@@ -101,11 +112,34 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _headingSub?.cancel();
-    _accelSub?.cancel();
-    super.dispose();
+  void _handleTapUp(TapUpDetails details) {
+    // Convert the tap into map (scene) coordinates
+    final scenePoint = _transformationController.toScene(details.localPosition);
+
+    for (var el in elements) {
+      final start = el["start"];
+      final end   = el["end"];
+      if (scenePoint.dx >= start["x"] &&
+          scenePoint.dx <= end["x"] &&
+          scenePoint.dy >= start["y"] &&
+          scenePoint.dy <= end["y"]) {
+        // Show description dialog
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text(el["name"]),
+            content: Text(el["description"] ?? "No description available"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+            ],
+          ),
+        );
+        break;
+      }
+    }
   }
 
   @override
@@ -115,21 +149,25 @@ class _MapScreenState extends State<MapScreen> {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : InteractiveViewer(
+        transformationController: _transformationController,
         minScale: 0.2,
         maxScale: 5.0,
         boundaryMargin: const EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          color: Colors.white,
-          child: CustomPaint(
-            size: Size(maxX, maxY),
-            painter: MapPainter(
-              elements,
-              widget.path,
-              basePosition,
-              currentHeading,
-              imuOffset,
+        child: GestureDetector(
+          onTapUp: _handleTapUp,
+          child: Container(
+            width: maxX,
+            height: maxY,
+            color: Colors.white,
+            child: CustomPaint(
+              size: Size(maxX, maxY),
+              painter: MapPainter(
+                elements,
+                widget.path,
+                basePosition,
+                currentHeading,
+                imuOffset,
+              ),
             ),
           ),
         ),
