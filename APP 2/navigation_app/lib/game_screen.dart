@@ -295,6 +295,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 start[0] * 50.0,
                 start[1] * 50.0,
               ),
+              selectedBoothName: task["name"],
             ),
           ),
         ).then((_) {

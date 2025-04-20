@@ -420,6 +420,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: start,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
+          selectedBoothName: selectedBooth,
         ),
       ),
     );
