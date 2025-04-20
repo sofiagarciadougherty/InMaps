@@ -61,10 +61,16 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
+def generate_venue_grid(csv_path, grid_size=50):
     df = pd.read_csv(csv_path)
-    gw = canvas_width  // grid_size
-    gh = canvas_height // grid_size
+
+    # Calculate real max width/height based on booth coordinates
+    max_x = max(df["End_X"])
+    max_y = max(df["End_Y"])
+
+    gw = int(max_x // grid_size) + 3   # Add some margin
+    gh = int(max_y // grid_size) + 3
+
     grid = np.ones((gh, gw), dtype=int)
 
     for _, row in df.iterrows():
@@ -77,10 +83,10 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
             continue
 
         for px in range(sx, ex+1):
-          for py in range(sy, ey+1):
-            gx, gy = px // grid_size, py // grid_size
-            if 0 <= gx < gw and 0 <= gy < gh:
-                grid[gy][gx] = 0
+            for py in range(sy, ey+1):
+                gx, gy = px // grid_size, py // grid_size
+                if 0 <= gx < gw and 0 <= gy < gh:
+                    grid[gy][gx] = 0
 
     return grid.tolist()
 
@@ -195,7 +201,7 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-    cell_size = 50
+    cell_size = CELL_SIZE
     goal_grid = (
         int(booth["center"]["x"] // cell_size),
         int(booth["center"]["y"] // cell_size)
