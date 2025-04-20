@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:io' show Platform;
+import 'package:permission_handler/permission_handler.dart';
 // carlota
 // Import game_screen.dart but hide MapScreen to avoid conflict.
 import './game_screen.dart' hide MapScreen;
@@ -455,6 +456,19 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     }
   }
 
+  // Request BLE and location permissions at runtime
+  Future<bool> _checkAndRequestPermissions() async {
+    final statuses = await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+      Permission.location,
+    ].request();
+    // All must be granted
+    return statuses.values.every((status) => status.isGranted);
+  }
+
   // ------------------- UI Build -------------------
   @override
   Widget build(BuildContext context) {
@@ -800,6 +814,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Start BLE Scanning -------------------
   void _startScanning() async {
+    final granted = await _checkAndRequestPermissions();
+    if (!granted) {
+      debugPrint('❌ Required permissions not granted. BLE scan aborted.');
+      return;
+    }
     if (Platform.isIOS) {
       await _scanSubscription?.cancel();
       _scanSubscription = flutterReactiveBle.scanForDevices(
