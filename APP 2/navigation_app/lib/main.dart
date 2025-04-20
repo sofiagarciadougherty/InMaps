@@ -356,6 +356,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: gridCoords,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
+          positionStream: positionTracker.positionStream,
         ),
       ),
     );

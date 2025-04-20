@@ -12,6 +12,7 @@ import math
 app = FastAPI()
 
 CSV_PATH = "booth_coordinates.csv"
+POI_CSV_PATH = "poi_coordinates.csv"
 
 # Add calibration constants
 CELL_SIZE = 40  # pixels per grid cell
@@ -59,6 +60,52 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
+def load_poi_and_beacon_data(csv_path):
+    df = pd.read_csv(csv_path)
+    booths = []
+    beacons = {}
+    print("📦 Loading POIs and beacons from CSV...")
+
+    for _, row in df.iterrows():
+        name = str(row.get("Name", "")).strip()
+        # Use Start_X (px) and Start_Y (px) for position in pixels
+        start_x = row.get("Start_X (px)")
+        start_y = row.get("Start_Y (px)")
+        end_x = row.get("End_X (px)")
+        end_y = row.get("End_Y (px)")
+        center_px = row.get("Center (px)")
+        # Parse center if available
+        try:
+            if isinstance(center_px, str) and center_px.startswith("("):
+                center = ast.literal_eval(center_px)
+            else:
+                center = (start_x, start_y)
+        except Exception:
+            center = (start_x, start_y)
+
+        if name.lower().startswith("beacon"):
+            # Treat as beacon
+            if pd.notnull(start_x) and pd.notnull(start_y):
+                beacons[name] = (int(start_x), int(start_y))
+                print(f"✅ Loaded beacon: {name} at ({start_x}, {start_y})")
+            continue
+
+        # Otherwise, treat as booth
+        booth_type = "booth"
+        print(f"✅ Loaded booth: {name} ({booth_type})")
+        booths.append({
+            "name": name,
+            "type": booth_type,
+            "area": {
+                "start": {"x": int(start_x) if pd.notnull(start_x) else 0, "y": int(start_y) if pd.notnull(start_y) else 0},
+                "end": {"x": int(end_x) if pd.notnull(end_x) else 0, "y": int(end_y) if pd.notnull(end_y) else 0},
+            },
+            "center": {"x": int(center[0]) if center else 0, "y": int(center[1]) if center else 0}
+        })
+    print(f"📊 Total booths loaded: {len(booths)}")
+    print(f"📡 Total beacons loaded: {len(beacons)}")
+    return booths, beacons
+
 def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
     df = pd.read_csv(csv_path)
     grid_width = canvas_width // grid_size
@@ -93,7 +140,7 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
     return venue_grid.tolist()
 
 
-booth_data = load_booth_data(CSV_PATH)
+booth_data, BEACON_POSITIONS = load_poi_and_beacon_data(POI_CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
 # Mapping between iOS beacon IDs and Android MAC addresses

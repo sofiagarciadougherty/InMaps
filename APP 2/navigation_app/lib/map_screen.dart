@@ -12,12 +12,15 @@ class MapScreen extends StatefulWidget {
   final List<int> startLocation;
   final double headingDegrees;
   final Vector2D initialPosition;
+  final Stream<Vector2D> positionStream;
 
-  MapScreen({
+  const MapScreen({
+    super.key,
     required this.path,
     required this.startLocation,
     required this.headingDegrees,
     required this.initialPosition,
+    required this.positionStream,
   });
 
   @override
@@ -34,7 +37,7 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<CompassEvent>? _headingSub;
   StreamSubscription<AccelerometerEvent>? _accelSub;
 
-  Vector2D imuOffset = Vector2D(0, 0);
+  Vector2D imuOffset = const Vector2D(0, 0);
   int stepCount = 0;
 
   Offset basePosition = Offset.zero;
@@ -64,7 +67,7 @@ class _MapScreenState extends State<MapScreen> {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       if (magnitude > 12) {
         stepCount++;
-        final stepDistanceInPixels = 0.7 * cellSize;
+        const stepDistanceInPixels = 0.7 * cellSize;
         imuOffset = Vector2D(
           imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
           imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
@@ -114,26 +117,34 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(title: const Text("Map View")),
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : InteractiveViewer(
-        minScale: 0.2,
-        maxScale: 5.0,
-        boundaryMargin: const EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          color: Colors.white,
-          child: CustomPaint(
-            size: Size(maxX, maxY),
-            painter: MapPainter(
-              elements,
-              widget.path,
-              basePosition,
-              currentHeading,
-              imuOffset,
+          : StreamBuilder<Vector2D>(
+              stream: widget.positionStream,
+              initialData: widget.initialPosition,
+              builder: (context, snapshot) {
+                final userPosition = snapshot.data ?? widget.initialPosition;
+                final basePosition = Offset(userPosition.x, userPosition.y);
+                return InteractiveViewer(
+                  minScale: 0.2,
+                  maxScale: 5.0,
+                  boundaryMargin: const EdgeInsets.all(1000),
+                  child: Container(
+                    width: maxX,
+                    height: maxY,
+                    color: Colors.white,
+                    child: CustomPaint(
+                      size: Size(maxX, maxY),
+                      painter: MapPainter(
+                        elements,
+                        widget.path,
+                        basePosition,
+                        currentHeading,
+                        imuOffset,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -164,7 +175,7 @@ class MapPainter extends CustomPainter {
       ..color = Colors.blue
       ..strokeWidth = 3.0;
     final paintUser = Paint()..color = Colors.blue;
-    final textStyle = const TextStyle(color: Colors.black, fontSize: 10);
+    const textStyle = TextStyle(color: Colors.black, fontSize: 10);
     final paintCone = Paint()
       ..color = Colors.blue.withOpacity(0.2)
       ..style = PaintingStyle.fill;

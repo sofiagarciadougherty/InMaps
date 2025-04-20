@@ -209,7 +209,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final userY = double.tryParse(parts[1].trim()) ?? 0;
 
     // Use a proximity threshold in pixels based on grid units
-    final proximityThresholdGridUnits = 0.1; // Adjust as needed
+    const proximityThresholdGridUnits = 0.1; // Adjust as needed
     final proximityThreshold = converter.gridToPixels(proximityThresholdGridUnits);
 
     for (var task in tasks) {
@@ -314,6 +314,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               startLocation: start,
               headingDegrees: headingDegrees,
               initialPosition: Vector2D(userPixelX, userPixelY),
+              positionStream: Stream.value(Vector2D(userPixelX, userPixelY)), // Provide a dummy stream
             ),
           ),
         ).then((_) {
