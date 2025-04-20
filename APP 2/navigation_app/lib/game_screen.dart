@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:http/http.dart' as http;
@@ -104,11 +105,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       withServices: [],
       scanMode: ScanMode.lowLatency,
     ).listen((device) {
+      // Handle iOS Kontakt beacons
       if (device.name.toLowerCase() == "kontakt" &&
           device.serviceData.containsKey(Uuid.parse("FE6A"))) {
         final rawData = device.serviceData[Uuid.parse("FE6A")]!;
         final asciiBytes = rawData.sublist(13);
         final beaconId = String.fromCharCodes(asciiBytes);
+
         if (beaconIdToPosition.containsKey(beaconId)) {
           if (mounted) {
             setState(() {
@@ -117,9 +120,42 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           }
         }
       }
+      // Handle Android devices with MAC address mapping
+      else if (Platform.isAndroid) {
+        final mac = device.id; // On Android, device.id is the MAC address
+        // Check if we have a mapping for this MAC address
+        final Map<String, String> macToIdMapping = {
+          // Add some common mappings here as a fallback
+          "00:FA:B6:31:12:EF": "14j906Gy",
+          "00:FA:B6:30:C2:F1": "14jr08Ef",
+          "00:FA:B6:31:12:F8": "14j606Gv",
+        };
+        
+        String? beaconId;
+        try {
+          // Try to get the mapping from the main app if available
+          beaconId = (mac_to_id_map != null && mac_to_id_map.containsKey(mac)) 
+                    ? mac_to_id_map[mac] 
+                    : macToIdMapping[mac];
+        } catch (e) {
+          // Fallback to local mapping
+          beaconId = macToIdMapping[mac];
+        }
+        
+        if (beaconId != null && beaconIdToPosition.containsKey(beaconId)) {
+          if (mounted) {
+            setState(() {
+              scannedDevices[beaconId!] = device.rssi;
+            });
+            debugPrint("🔗 GameScreen: Mapped MAC $mac to beacon ID $beaconId");
+          }
+        }
+      }
     }, onError: (err) {
       debugPrint("❌ BLE scan error: $err");
     });
+    
+    debugPrint("📡 GameScreen: BLE scanning started on ${Platform.isAndroid ? 'Android' : 'iOS'}");
   }
 
   // ---------------- Estimate User Location ----------------

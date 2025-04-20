@@ -173,6 +173,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       debugMode: true,
     );
 
+    // Configure the BLE scanner service with the MAC mappings
+    final bleScanner = BLEScannerService();
+    bleScanner.configure(
+      macToIdMap: mac_to_id_map,
+      beaconPositions: beaconIdToPosition,
+    );
+
     // Subscribe to position updates
     _positionSubscription = positionTracker.positionStream.listen((position) {
       // Check if significant movement has occurred
@@ -274,6 +281,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             mac_to_id_map[mac] = id;
           });
 
+          // Configure the BLEScannerService with updated mappings from backend
+          final bleScanner = BLEScannerService();
+          bleScanner.configure(
+            macToIdMap: mac_to_id_map,
+            beaconPositions: beaconIdToPosition,
+          );
+
           // Parse scale factors and calibration values
           final pixelsPerGridCell = (data['gridCellSize'] ?? 50).toDouble();
           final metersToGridFactor =
@@ -347,6 +361,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       converter.configure(
         pixelsPerGridCell: 50.0,
         metersToGridFactor: 2.0,
+      );
+
+      // Configure the BLEScannerService with the default mappings
+      final bleScanner = BLEScannerService();
+      bleScanner.configure(
+        macToIdMap: mac_to_id_map,
+        beaconPositions: beaconIdToPosition,
       );
 
       txPower = -59; // Default reference power at 1m
@@ -726,33 +747,93 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   });
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const GameScreen()),
-                  );
+                    MaterialPageRoute(builder: (_) => const GameScreen()),    setState(() {
+                  );r();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  textStyle: const TextStyle(fontSize: 16),
-                ),
-                child: const Text("Game Mode"),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                  foregroundColor: Colors.white, // iOS-specific scanning
+                  padding: const EdgeInsets.symmetric(vertical: 12),   _scanSubscription = flutterReactiveBle.scanForDevices(
+                  textStyle: const TextStyle(fontSize: 16),       withServices: [],
+                ),        scanMode: ScanMode.lowLatency,
+                child: const Text("Game Mode"),      ).listen((device) {
+              ),        if (device.name.toLowerCase() == "kontakt" &&
+            ),            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
 
-  // ------------------- Start BLE Scanning -------------------
-  void _startScanning() async {
-    await _scanSubscription?.cancel();
 
-    if (Platform.isIOS) {
-      // ...existing code...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}  }    }      // ...existing code...    } else if (Platform.isAndroid) {      // ...existing code...    if (Platform.isIOS) {    await _scanSubscription?.cancel();  void _startScanning() async {  // ------------------- Start BLE Scanning -------------------  }    );      ),        ),          ],          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+          final asciiBytes = rawData.sublist(13);
+          final beaconId = String.fromCharCodes(asciiBytes);
+
+          if (beaconIdToPosition.containsKey(beaconId)) {
+            setState(() {
+              scannedDevices[beaconId] = device.rssi;
+            });
+            _updateBeaconList();
+          }
+        }
+      }, onError: (e) {
+        debugPrint("❌ iOS BLE scan error: $e");
+      });
     } else if (Platform.isAndroid) {
-      // ...existing code...
+      // Android-specific scanning
+      _scanSubscription = flutterReactiveBle.scanForDevices(
+        withServices: [],
+        scanMode: ScanMode.lowLatency,
+      ).listen((device) {
+        // Handle both Kontakt beacons and generic BLE devices
+        if (device.name.toLowerCase() == "kontakt" && 
+            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+          // Kontakt beacon format - similar to iOS
+          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+          final asciiBytes = rawData.sublist(13);
+          final beaconId = String.fromCharCodes(asciiBytes);
+          
+          if (beaconIdToPosition.containsKey(beaconId)) {
+            setState(() {
+              scannedDevices[beaconId] = device.rssi;
+            });
+            _updateBeaconList();
+          }
+        } else {
+          // For other devices, check if the MAC address is in our mapping
+          final mac = device.id; // On Android, device.id is the MAC address
+          if (mac_to_id_map.containsKey(mac)) {
+            final beaconId = mac_to_id_map[mac]!;
+            if (beaconIdToPosition.containsKey(beaconId)) {
+              setState(() {
+                scannedDevices[beaconId] = device.rssi;
+              });
+              _updateBeaconList();
+              debugPrint("🔗 Mapped MAC $mac to beacon ID $beaconId");
+            }
+          }
+        }
+      }, onError: (e) {
+        debugPrint("❌ Android BLE scan error: $e");
+      });
     }
+    
+    debugPrint("📡 BLE scanning started on ${Platform.isAndroid ? 'Android' : 'iOS'}");
   }
 }
 
