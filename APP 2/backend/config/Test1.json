@@ -1,0 +1,30 @@
+{
+  "venueName": "My Venue",
+  "floorplanImageUrl": "/static/uploads/PressRoomB.jpg",
+  "imageWidthPx": 802,
+  "imageHeightPx": 500,
+  "floorWidthM": 5,
+  "floorHeightM": null,
+  "pixelsPerGridCell": 50,
+  "metersToGridFactor": 2,
+  "scale": {
+    "primary": 0.006234413965087282,
+    "x": 0.006234413965087282,
+    "y": 0.006234413965087282
+  },
+  "beaconIdMapping": {},
+  "beaconPositions": {
+    "beacon_2": {
+      "x": 39.5,
+      "y": 8.78125
+    },
+    "beacon_3": {
+      "x": 761.5,
+      "y": 9.78125
+    },
+    "beacon_4": {
+      "x": 402.5,
+      "y": 463.78125
+    }
+  }
+}
