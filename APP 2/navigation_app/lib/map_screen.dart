@@ -79,6 +79,7 @@ class _MapScreenState extends State<MapScreen> {
         updatePath();
       }
     });
+    updatePath();
   }
 
   Future<void> fetchMapData() async {

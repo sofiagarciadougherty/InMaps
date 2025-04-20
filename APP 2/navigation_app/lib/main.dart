@@ -208,9 +208,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   void _initializeDefaultConfig() {
     setState(() {
       beaconIdToPosition = {
-        "14j906Gy": [0, 0],
-        "14jr08Ef": [200, 0],
-        "14j606Gv": [0, 200],
+        "14j906Gy": [500, 500],
+        "14jr08Ef": [700, 500],
+        "14j606Gv": [500, 700],
       };
       
       beacon_mac_map = {
