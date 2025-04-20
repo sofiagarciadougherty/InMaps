@@ -8,11 +8,21 @@ import numpy as np
 import json
 import ast
 import math
+from fastapi.staticfiles import StaticFiles  # <-- Add this import
+import os
 
 app = FastAPI()
 
-CSV_PATH = "booth_coordinates.csv"
-POI_CSV_PATH = "poi_coordinates.csv"
+# Serve static files from the "background" folder at /background
+background_dir = os.path.join(os.path.dirname(__file__), "background")
+app.mount("/background", StaticFiles(directory=background_dir), name="background")
+
+# Now, images can be accessed at:
+# http://localhost:8000/background/<image_name>
+# Example: http://localhost:8000/background/McCamish.jpg
+
+POI_CSV_PATH = os.path.join(os.path.dirname(__file__), "poi_coordinates.csv")
+CSV_PATH = POI_CSV_PATH  # Remove booth_coordinates.csv dependency
 
 # Add calibration constants
 CELL_SIZE = 40  # pixels per grid cell
@@ -113,35 +123,31 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
     venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
+        name = str(row.get("Name", "")).strip()
+        # Only treat as booth/obstacle if not a beacon
+        if name.lower().startswith("beacon"):
             continue
-        try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
-        except Exception:
+        # Use Start/End coordinates
+        start_x = row.get("Start_X (px)")
+        start_y = row.get("Start_Y (px)")
+        end_x = row.get("End_X (px)")
+        end_y = row.get("End_Y (px)")
+        if pd.isnull(start_x) or pd.isnull(start_y) or pd.isnull(end_x) or pd.isnull(end_y):
             continue
-
-        # Mark all types as obstacles
-        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(coords["start"]["x"])
-            start_px_y = int(coords["start"]["y"])
-            end_px_x = int(coords["end"]["x"])
-            end_px_y = int(coords["end"]["y"])
-
-            for px_x in range(start_px_x, end_px_x + 1):
-                for px_y in range(start_px_y, end_px_y + 1):
-                    gx = px_x // grid_size
-                    gy = px_y // grid_size
-
-                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
-                        venue_grid[gy][gx] = 0
-
-
+        start_px_x = int(start_x)
+        start_px_y = int(start_y)
+        end_px_x = int(end_x)
+        end_px_y = int(end_y)
+        for px_x in range(start_px_x, end_px_x + 1):
+            for px_y in range(start_px_y, end_px_y + 1):
+                gx = px_x // grid_size
+                gy = px_y // grid_size
+                if 0 <= gx < grid_width and 0 <= gy < grid_height:
+                    venue_grid[gy][gx] = 0
     return venue_grid.tolist()
 
-
 booth_data, BEACON_POSITIONS = load_poi_and_beacon_data(POI_CSV_PATH)
-VENUE_GRID = generate_venue_grid(CSV_PATH)
+VENUE_GRID = generate_venue_grid(POI_CSV_PATH)
 
 # Mapping between iOS beacon IDs and Android MAC addresses
 BEACON_MAC_MAP = {
@@ -292,7 +298,35 @@ def get_path(request: PathRequest):
 
 @app.get("/booths")
 def get_all_booths():
-    return booth_data
+    # Always reload from poi_coordinates.csv to ensure up-to-date data
+    df = pd.read_csv(POI_CSV_PATH)
+    booths = []
+    for _, row in df.iterrows():
+        name = str(row.get("Name", "")).strip()
+        # If the name does NOT start with 'beacon' (case-insensitive), treat as booth
+        if not name.lower().startswith("beacon"):
+            start_x = row.get("Start_X (px)")
+            start_y = row.get("Start_Y (px)")
+            end_x = row.get("End_X (px)")
+            end_y = row.get("End_Y (px)")
+            center_px = row.get("Center (px)")
+            try:
+                if isinstance(center_px, str) and center_px.startswith("("):
+                    center = ast.literal_eval(center_px)
+                else:
+                    center = (start_x, start_y)
+            except Exception:
+                center = (start_x, start_y)
+            booths.append({
+                "name": name,
+                "type": "booth",
+                "area": {
+                    "start": {"x": int(start_x) if pd.notnull(start_x) else 0, "y": int(start_y) if pd.notnull(start_y) else 0},
+                    "end": {"x": int(end_x) if pd.notnull(end_x) else 0, "y": int(end_y) if pd.notnull(end_y) else 0},
+                },
+                "center": {"x": int(center[0]) if center else 0, "y": int(center[1]) if center else 0}
+            })
+    return booths
 
 @app.get("/booths/{booth_id}")
 def get_booth_by_id(booth_id: int):

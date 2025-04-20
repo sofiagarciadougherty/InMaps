@@ -13,6 +13,7 @@ class MapScreen extends StatefulWidget {
   final double headingDegrees;
   final Vector2D initialPosition;
   final Stream<Vector2D> positionStream;
+  final String backendUrl; // <-- add this
 
   const MapScreen({
     super.key,
@@ -21,6 +22,7 @@ class MapScreen extends StatefulWidget {
     required this.headingDegrees,
     required this.initialPosition,
     required this.positionStream,
+    required this.backendUrl, // <-- add this
   });
 
   @override
@@ -32,6 +34,10 @@ class _MapScreenState extends State<MapScreen> {
   double maxX = 0;
   double maxY = 0;
 
+  double? imageWidth;
+  double? imageHeight;
+  double? cellSize;
+
   double currentHeading = 0.0;
   double headingRadians = 0.0;
   StreamSubscription<CompassEvent>? _headingSub;
@@ -41,19 +47,17 @@ class _MapScreenState extends State<MapScreen> {
   int stepCount = 0;
 
   Offset basePosition = Offset.zero;
-  static const double cellSize = 40.0;
+  String _backgroundImage = 'McCamish.jpg'; // Default image name
 
   @override
   void initState() {
     super.initState();
-
     basePosition = Offset(
       widget.initialPosition.x,
       widget.initialPosition.y,
     );
-
     fetchMapData();
-
+    _loadImageDimensions();
     _headingSub = FlutterCompass.events?.listen((event) {
       if (event.heading != null) {
         setState(() {
@@ -62,19 +66,37 @@ class _MapScreenState extends State<MapScreen> {
         });
       }
     });
-
     _accelSub = accelerometerEvents.listen((event) {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       if (magnitude > 12) {
         stepCount++;
-        const stepDistanceInPixels = 0.7 * cellSize;
+        final dynamicCellSize = cellSize ?? 40.0;
+        const stepDistance = 0.7;
         imuOffset = Vector2D(
-          imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
-          imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
+          imuOffset.x + cos(headingRadians) * stepDistance * dynamicCellSize,
+          imuOffset.y + sin(headingRadians) * stepDistance * dynamicCellSize,
         );
-        print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x/cellSize).toStringAsFixed(2)}m, ${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
+        print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x / dynamicCellSize).toStringAsFixed(2)}m, ${(imuOffset.y / dynamicCellSize).toStringAsFixed(2)}m)");
       }
     });
+  }
+
+  void _loadImageDimensions() {
+    final image = Image.network('${widget.backendUrl}/background/$_backgroundImage');
+    image.image.resolve(const ImageConfiguration()).addListener(
+      ImageStreamListener((ImageInfo info, bool _) {
+        final width = info.image.width.toDouble();
+        final height = info.image.height.toDouble();
+        final shortest = width < height ? width : height;
+        setState(() {
+          imageWidth = width;
+          imageHeight = height;
+          cellSize = shortest / 50.0;
+          maxX = width;
+          maxY = height;
+        });
+      })
+    );
   }
 
   Future<void> fetchMapData() async {
@@ -97,10 +119,10 @@ class _MapScreenState extends State<MapScreen> {
           maxY = maxYLocal + 100;
         });
       } else {
-        print("❌ Failed to fetch map data. Status: \${response.statusCode}");
+        print("❌ Failed to fetch map data. Status: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Map fetch failed: \$e");
+      print("❌ Map fetch failed: $e");
     }
   }
 
@@ -113,38 +135,74 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dynamicCellSize = cellSize ?? 40.0;
     return Scaffold(
-      appBar: AppBar(title: const Text("Map View")),
-      body: elements.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : StreamBuilder<Vector2D>(
-              stream: widget.positionStream,
-              initialData: widget.initialPosition,
-              builder: (context, snapshot) {
-                final userPosition = snapshot.data ?? widget.initialPosition;
-                final basePosition = Offset(userPosition.x, userPosition.y);
-                return InteractiveViewer(
-                  minScale: 0.2,
-                  maxScale: 5.0,
-                  boundaryMargin: const EdgeInsets.all(1000),
-                  child: Container(
-                    width: maxX,
-                    height: maxY,
-                    color: Colors.white,
-                    child: CustomPaint(
-                      size: Size(maxX, maxY),
-                      painter: MapPainter(
-                        elements,
-                        widget.path,
-                        basePosition,
-                        currentHeading,
-                        imuOffset,
-                      ),
+      appBar: AppBar(
+        title: const Text('Navigation Map'),
+        backgroundColor: Colors.teal,
+      ),
+      body: Stack(
+        children: [
+          if (imageWidth != null && imageHeight != null && cellSize != null)
+            InteractiveViewer(
+              constrained: false, // Allow child to be full image size
+              minScale: 0.2,
+              maxScale: 5.0,
+              boundaryMargin: const EdgeInsets.all(1000),
+              child: SizedBox(
+                width: imageWidth,
+                height: imageHeight,
+                child: Stack(
+                  children: [
+                    Image.network(
+                      '${widget.backendUrl}/background/$_backgroundImage',
+                      width: imageWidth,
+                      height: imageHeight,
+                      fit: BoxFit.none, // Show image at natural size, never squished
                     ),
-                  ),
-                );
-              },
+                    StreamBuilder<Vector2D>(
+                      stream: widget.positionStream,
+                      initialData: widget.initialPosition,
+                      builder: (context, snapshot) {
+                        final userPosition = snapshot.data ?? widget.initialPosition;
+                        final basePosition = Offset(userPosition.x, userPosition.y);
+                        return CustomPaint(
+                          size: Size(imageWidth!, imageHeight!),
+                          painter: MapPainter(
+                            elements,
+                            widget.path,
+                            basePosition,
+                            currentHeading,
+                            imuOffset,
+                            cellSize: dynamicCellSize,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            const Center(child: CircularProgressIndicator()),
+          // Controls and UI overlays can be added here
+          Positioned(
+            bottom: 16,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Position: (${basePosition.dx.toStringAsFixed(1)}, ${basePosition.dy.toStringAsFixed(1)})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -155,8 +213,7 @@ class MapPainter extends CustomPainter {
   final Offset basePosition;
   final double headingDegrees;
   final Vector2D imuOffset;
-
-  static const double cellSize = 40.0;
+  final double cellSize;
 
   MapPainter(
       this.elements,
@@ -164,7 +221,8 @@ class MapPainter extends CustomPainter {
       this.basePosition,
       this.headingDegrees,
       this.imuOffset,
-      );
+      {this.cellSize = 40.0}
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -251,67 +309,60 @@ class MapPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
 
-    final maxGridX = size.width;
-    final maxGridY = size.height;
-
-    // Draw vertical grid lines
-    for (double x = 0; x <= maxGridX; x += cellSize) {
+    // Draw vertical grid lines and axis markers at every 5 grid units
+    final maxUnitsX = (size.width / cellSize).floor();
+    for (int i = 0; i <= maxUnitsX; i += 5) {
+      final x = i * cellSize;
       canvas.drawLine(
         Offset(x, 0),
-        Offset(x, maxGridY),
+        Offset(x, size.height),
         gridPaint,
       );
-
-      // Add coordinates every 80 pixels (2 meters)
-      if (x % (cellSize * 2) == 0) {
-        final pixels = x.toInt();
-        final meters = (pixels / cellSize).toStringAsFixed(1);
-        TextPainter(
-          text: TextSpan(
-            text: '${pixels}px\n${meters}m',
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              backgroundColor: Color(0xBBFFFFFF),
-            ),
+      final pixels = x.toInt();
+      final units = i;
+      TextPainter(
+        text: TextSpan(
+          text: '${pixels}px\n${units}u',
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color(0xBBFFFFFF),
           ),
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-        )
-          ..layout()
-          ..paint(canvas, Offset(x + 2, 2));
-      }
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+      )
+        ..layout()
+        ..paint(canvas, Offset(x + 2, 2));
     }
 
-    // Draw horizontal grid lines
-    for (double y = 0; y <= maxGridY; y += cellSize) {
+    // Draw horizontal grid lines and axis markers at every 5 grid units
+    final maxUnitsY = (size.height / cellSize).floor();
+    for (int i = 0; i <= maxUnitsY; i += 5) {
+      final y = i * cellSize;
       canvas.drawLine(
         Offset(0, y),
-        Offset(maxGridX, y),
+        Offset(size.width, y),
         gridPaint,
       );
-
-      // Add coordinates every 80 pixels (2 meters)
-      if (y % (cellSize * 2) == 0) {
-        final pixels = y.toInt();
-        final meters = (pixels / cellSize).toStringAsFixed(1);
-        TextPainter(
-          text: TextSpan(
-            text: '${pixels}px\n${meters}m',
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              backgroundColor: Color(0xBBFFFFFF),
-            ),
+      final pixels = y.toInt();
+      final units = i;
+      TextPainter(
+        text: TextSpan(
+          text: '${pixels}px\n${units}u',
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color(0xBBFFFFFF),
           ),
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-        )
-          ..layout()
-          ..paint(canvas, Offset(2, y + 2));
-      }
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.center,
+      )
+        ..layout()
+        ..paint(canvas, Offset(2, y + 2));
     }
 
     // Update user position display to show both pixels and meters

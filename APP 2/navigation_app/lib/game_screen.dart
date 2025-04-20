@@ -44,6 +44,30 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   /// Current user location as a string "x, y".
   String userLocation = "";
 
+  // Add MAC to ID mapping for Android BLE
+  final Map<String, String> mac_to_id_map = {
+    "00:FA:B6:2F:50:8C": "14b00739",
+    "00:FA:B6:2F:51:28": "14b6072G",
+    "00:FA:B6:2F:51:25": "14b7072H",
+    "00:FA:B6:2F:51:16": "14bC072N",
+    "00:FA:B6:2F:51:10": "14bE072Q",
+    "00:FA:B6:2F:51:0D": "14bF072R",
+    "00:FA:B6:2F:51:01": "14bK072V",
+    "00:FA:B6:2F:50:FB": "14bM072X",
+    "00:FA:B6:31:02:BA": "14j006gQ",
+    "00:FA:B6:31:12:F8": "14j606Gv",
+    "00:FA:B6:31:12:F5": "14j706Gw",
+    "00:FA:B6:31:02:A5": "14j706gX",
+    "00:FA:B6:31:12:EF": "14j906Gy",
+    "00:FA:B6:31:01:A0": "14jd06i0",
+    "00:FA:B6:31:01:8E": "14jj06i6",
+    "00:FA:B6:31:02:D5": "14jr06gF",
+    "00:FA:B6:30:C2:F1": "14jr08Ef",
+    "00:FA:B6:31:02:D2": "14js06gG",
+    "00:FA:B6:31:02:C9": "14jv06gK",
+    "00:FA:B6:30:C2:E2": "14jw08Ek"
+  };
+
   // ---------------- Game Tasks ----------------
   /// Each task contains fields:
   /// "id", "name", "category", "description", "x", "y", "points", and "completed".
@@ -351,6 +375,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               headingDegrees: headingDegrees,
               initialPosition: Vector2D(userPixelX, userPixelY),
               positionStream: Stream.value(Vector2D(userPixelX, userPixelY)), // Provide a dummy stream
+              backendUrl: 'http://10.0.2.2:8000', // Pass backendUrl for emulator
             ),
           ),
         ).then((_) {

@@ -67,7 +67,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   List<List<dynamic>> currentPath = [];
 
   // Backend URL
-  final String backendUrl = 'https://inmaps.onrender.com';
+  final String backendUrl = 'http://10.0.2.2:8000';
 
   // Configuration from backend
   Map<String, dynamic> configData = {};
@@ -432,8 +432,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: gridCoords,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
-          // Use the stream from the tracker receiving simulated beacons
           positionStream: blePositionTracker.positionStream,
+          backendUrl: backendUrl, // Pass backendUrl here
         ),
       ),
     );
@@ -747,40 +747,68 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   });
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const GameScreen()),    setState(() {
-                  );r();
+                    MaterialPageRoute(builder: (_) => const GameScreen()),
+                  );
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
-                  foregroundColor: Colors.white, // iOS-specific scanning
-                  padding: const EdgeInsets.symmetric(vertical: 12),   _scanSubscription = flutterReactiveBle.scanForDevices(
-                  textStyle: const TextStyle(fontSize: 16),       withServices: [],
-                ),        scanMode: ScanMode.lowLatency,
-                child: const Text("Game Mode"),      ).listen((device) {
-              ),        if (device.name.toLowerCase() == "kontakt" &&
-            ),            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  textStyle: const TextStyle(fontSize: 16),
+                ),
+                child: const Text("Game Mode"),
+              ),
+            ),
+            
+            // Add map preview with background image
+            const SizedBox(height: 20),
+            Container(
+              width: double.infinity,
+              height: 200,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  '$backendUrl/background/McCamish.jpg',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.map, size: 48, color: Colors.grey),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Map preview not available',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}  }    }      // ...existing code...    } else if (Platform.isAndroid) {      // ...existing code...    if (Platform.isIOS) {    await _scanSubscription?.cancel();  void _startScanning() async {  // ------------------- Start BLE Scanning -------------------  }    );      ),        ),          ],          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
+  // ------------------- Start BLE Scanning -------------------
+  void _startScanning() async {
+    if (Platform.isIOS) {
+      await _scanSubscription?.cancel();
+      _scanSubscription = flutterReactiveBle.scanForDevices(
+        withServices: [],
+        scanMode: ScanMode.lowLatency,
+      ).listen((device) {
+        if (device.name.toLowerCase() == "kontakt" &&
+            device.serviceData.containsKey(Uuid.parse("FE6A"))) {
+          final rawData = device.serviceData[Uuid.parse("FE6A")]!;
           final asciiBytes = rawData.sublist(13);
           final beaconId = String.fromCharCodes(asciiBytes);
 
