@@ -133,9 +133,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           id: id,
           rssi: rssi,
           baseRssi: -59, // Use the same reference power as in main.dart
-          position: Position(
-            x: pos[0].toDouble(),
-            y: pos[1].toDouble(),
+          position: Vector2D(
+            pos[0].toDouble(),
+            pos[1].toDouble(),
           ),
         ));
       }

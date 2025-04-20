@@ -98,6 +98,60 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
   StreamSubscription<Vector2D>? _positionSubscription;
 
+  // Simulation mode
+  bool simulateBeacons = false;
+  Timer? simulationTimer;
+
+  // Simulated beacons (real IDs and pixel positions from poi_coordinates.csv)
+  final List<Beacon> simulatedBeacons = [
+    Beacon(
+      id: 'beacon_2',
+      name: 'beacon_2',
+      rssi: -60,
+      baseRssi: -59,
+      position: Vector2D(520, 573),
+    ),
+    Beacon(
+      id: 'beacon_3',
+      name: 'beacon_3',
+      rssi: -65,
+      baseRssi: -59,
+      position: Vector2D(524, 519),
+    ),
+    Beacon(
+      id: 'beacon_4',
+      name: 'beacon_4',
+      rssi: -70,
+      baseRssi: -59,
+      position: Vector2D(593, 482),
+    ),
+  ];
+
+  void startBeaconSimulation() {
+    simulationTimer?.cancel();
+    simulationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // Optionally randomize RSSI for realism
+      final beacons = simulatedBeacons.map((b) => Beacon(
+        id: b.id,
+        name: b.name,
+        rssi: b.rssi! + (Random().nextInt(7) - 3),
+        baseRssi: b.baseRssi,
+        position: b.position,
+      )).toList();
+      setState(() {
+        beaconList = beacons;
+      });
+      // Update the SmoothedPositionTracker directly
+      blePositionTracker.updateBeacons(beacons);
+      // Optionally still update the fused tracker if needed elsewhere
+      // positionTracker.updateBeacons(beacons);
+    });
+  }
+
+  void stopBeaconSimulation() {
+    simulationTimer?.cancel();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +162,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
     // Initialize BLE position tracker
     blePositionTracker = SmoothedPositionTracker(alpha: 0.8, intervalMs: 800);
+    blePositionTracker.start(); // <-- Ensure the tracker is running
 
     // Initialize fused position tracker with BLE base
     positionTracker = FusedPositionTracker(
@@ -160,6 +215,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     _scanSubscription?.cancel();
     _positionSubscription?.cancel();
     positionTracker.dispose();
+    stopBeaconSimulation();
     super.dispose();
   }
 
@@ -175,8 +231,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           name: id,
           rssi: rssi,
           baseRssi: txPower,
-          position: Position(
-              x: position[0].toDouble(), y: position[1].toDouble()),
+          position: Vector2D(position[0].toDouble(), position[1].toDouble()),
         ));
       }
     });
@@ -356,7 +411,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: gridCoords,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
-          positionStream: positionTracker.positionStream,
+          // Use the stream from the tracker receiving simulated beacons
+          positionStream: blePositionTracker.positionStream,
         ),
       ),
     );
@@ -397,6 +453,27 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           ],
         ),
         iconTheme: const IconThemeData(color: Colors.black87),
+        actions: [
+          // Simulation toggle button
+          Row(
+            children: [
+              const Text('Simulate', style: TextStyle(color: Colors.black)),
+              Switch(
+                value: simulateBeacons,
+                onChanged: (val) {
+                  setState(() {
+                    simulateBeacons = val;
+                  });
+                  if (val) {
+                    startBeaconSimulation();
+                  } else {
+                    stopBeaconSimulation();
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),

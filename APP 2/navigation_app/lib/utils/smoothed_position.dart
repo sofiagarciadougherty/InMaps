@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:math';
 import '../models/beacon.dart';
 import './positioning.dart';
 import './vector2d.dart';
+import './unit_converter.dart';
 
 class SmoothedPositionTracker {
   // Configuration properties
@@ -10,10 +10,12 @@ class SmoothedPositionTracker {
   final int intervalMs;
 
   // State
-  Vector2D _currentPosition = Vector2D(0, 0);
-  Vector2D _lastPosition = Vector2D(0, 0);
+  Vector2D _currentPosition = const Vector2D(0, 0);
+  Vector2D _lastPosition = const Vector2D(0, 0);
   List<Beacon> _beacons = [];
-  double _metersToGridFactor = 2.0;
+
+  // Add access to UnitConverter or its factors
+  final UnitConverter _converter = UnitConverter(); // Assuming default config is okay initially
 
   // Timer for position updates
   Timer? _timer;
@@ -50,7 +52,7 @@ class SmoothedPositionTracker {
   }
 
   void updateCalibration(double metersToGridFactor) {
-    _metersToGridFactor = metersToGridFactor;
+    _converter.metersToGridFactor = metersToGridFactor; // Keep converter updated
   }
 
   void _updatePosition() {
@@ -58,23 +60,27 @@ class SmoothedPositionTracker {
     Vector2D newPos = _lastPosition;
 
     // Only consider beacons with valid RSSI values
-    final connected = _beacons.where((b) => b.rssi != null).toList();
+    final connected = _beacons.where((b) => b.rssi != null && b.position != null).toList();
 
-    if (connected.length >= 3) {
-      // If we have 3+ beacons, use trilateration
-      final calculatedPos = multilaterate(connected, _metersToGridFactor);
-      newPos = Vector2D(calculatedPos['x']!, calculatedPos['y']!);
-    } else if (connected.isNotEmpty) {
-      // If we have 1-2 beacons, use the closest one
-      connected.sort((a, b) {
-        final da = rssiToDistance(a.rssi ?? a.baseRssi, a.baseRssi);
-        final db = rssiToDistance(b.rssi ?? b.baseRssi, b.baseRssi);
-        return da.compareTo(db);
-      });
+    if (connected.isNotEmpty) {
+      // Calculate pixels per meter using the converter
+      final pixelsPerMeter = _converter.metersToGridFactor * _converter.pixelsPerGridCell;
 
-      final closest = connected.first;
-      if (closest.position != null) {
-        newPos = Vector2D(closest.position!.x, closest.position!.y);
+      if (connected.length >= 3) {
+        // If we have 3+ beacons, use multilaterate with pixelsPerMeter
+        final calculatedPos = multilaterate(connected, pixelsPerMeter);
+        newPos = Vector2D(calculatedPos['x']!, calculatedPos['y']!);
+      } else {
+        // If we have 1-2 beacons, use the closest one
+        connected.sort((a, b) {
+          final da = rssiToDistance(a.rssi!, a.baseRssi);
+          final db = rssiToDistance(b.rssi!, b.baseRssi);
+          return da.compareTo(db);
+        });
+
+        final closest = connected.first;
+        // Position is already in pixels (Vector2D)
+        newPos = closest.position!;
       }
     }
 

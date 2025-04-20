@@ -73,31 +73,31 @@ class BeaconSimulator {
       Beacon(
         id: 'beacon_1',
         name: 'Corner Beacon',
-        position: Position(x: 100, y: 100),
+        position: Vector2D(100, 100),
         baseRssi: -59,
       ),
       Beacon(
         id: 'beacon_2',
         name: 'Center Beacon',
-        position: Position(x: 300, y: 300),
+        position: Vector2D(300, 300),
         baseRssi: -59,
       ),
       Beacon(
         id: 'beacon_3',
         name: 'Far Beacon',
-        position: Position(x: 500, y: 100),
+        position: Vector2D(500, 100),
         baseRssi: -59,
       ),
       Beacon(
         id: 'beacon_4',
         name: 'Entrance Beacon',
-        position: Position(x: 100, y: 400),
+        position: Vector2D(100, 400),
         baseRssi: -59,
       ),
       Beacon(
         id: 'beacon_5',
         name: 'Exit Beacon',
-        position: Position(x: 500, y: 400),
+        position: Vector2D(500, 400),
         baseRssi: -59,
       ),
     ];
@@ -138,7 +138,7 @@ class BeaconSimulator {
     // For each beacon, calculate RSSI based on distance
     for (final beacon in _beacons) {
       if (beacon.position != null) {
-        final distance = Position.distance(userPosition, beacon.position!);
+        final distance = sqrt(pow(userPosition.x - beacon.position!.x, 2) + pow(userPosition.y - beacon.position!.y, 2));
         
         // Convert from pixels to meters (40px = 1m)
         final distanceMeters = distance / 40;
@@ -147,7 +147,7 @@ class BeaconSimulator {
         if (distanceMeters <= _maxSignalDistance) {
           final rssi = _calculateRssiFromDistance(
             distanceMeters,
-            baseRssi: beacon.baseRssi ?? -59
+            baseRssi: beacon.baseRssi
           );
           
           rssiValues[beacon.id] = rssi;
@@ -183,7 +183,7 @@ class BeaconSimulator {
   }
   
   /// Add a temporary simulated beacon
-  void addTemporaryBeacon(Position position, {Duration? duration}) {
+  void addTemporaryBeacon(Vector2D position, {Duration? duration}) {
     final id = 'temp_beacon_${DateTime.now().millisecondsSinceEpoch}';
     final beacon = Beacon(
       id: id,
