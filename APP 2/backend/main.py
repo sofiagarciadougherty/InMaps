@@ -10,6 +10,7 @@ import ast
 import math
 from fastapi.staticfiles import StaticFiles
 import os
+from PIL import Image  # <-- Add this import
 
 app = FastAPI()
 
@@ -152,8 +153,19 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
                     venue_grid[gy][gx] = 0
     return venue_grid.tolist()
 
+# --- Load background image dimensions and use for grid generation ---
+def get_background_image_size(image_path):
+    with Image.open(image_path) as img:
+        return img.size  # returns (width, height)
+
+background_image_path = os.path.join(background_dir, "McCamish.jpg")  # Default image
+if os.path.exists(background_image_path):
+    canvas_width, canvas_height = get_background_image_size(background_image_path)
+else:
+    canvas_width, canvas_height = 800, 600  # fallback
+
 booth_data, BEACON_POSITIONS = load_poi_and_beacon_data(POI_CSV_PATH)
-VENUE_GRID = generate_venue_grid(POI_CSV_PATH)
+VENUE_GRID = generate_venue_grid(POI_CSV_PATH, canvas_width=canvas_width, canvas_height=canvas_height)
 
 # Mapping between iOS beacon IDs and Android MAC addresses
 BEACON_MAC_MAP = {
