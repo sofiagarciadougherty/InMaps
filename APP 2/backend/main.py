@@ -59,7 +59,7 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
+def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=CELL_SIZE):
     df = pd.read_csv(csv_path)
     grid_width = canvas_width // grid_size
     grid_height = canvas_height // grid_size
@@ -208,8 +208,8 @@ def get_path(request: PathRequest):
 
     cell_size = 50
     goal_grid = (
-        int(booth["center"]["x"] // cell_size),
-        int(booth["center"]["y"] // cell_size)
+        int(booth["center"]["x"] // CELL_SIZE),
+        int(booth["center"]["y"] // CELL_SIZE)
     )
 
     def find_nearest_free_cell(goal, grid):
