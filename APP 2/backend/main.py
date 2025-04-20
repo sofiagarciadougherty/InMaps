@@ -8,13 +8,10 @@ import numpy as np
 import json
 import ast
 import math
-from pathfinding import create_venue_grid, a_star
 
 app = FastAPI()
 
 CSV_PATH = "booth_coordinates.csv"
-BEACON_POSITIONS = {}
-
 
 # Add calibration constants
 CELL_SIZE = 40  # pixels per grid cell
@@ -77,23 +74,25 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
         except Exception:
             continue
 
-        # Mark all types as obstacles
         if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
             start_px_x = int(coords["start"]["x"])
             start_px_y = int(coords["start"]["y"])
             end_px_x = int(coords["end"]["x"])
             end_px_y = int(coords["end"]["y"])
 
-            for px_x in range(start_px_x, end_px_x + 1):
-                for px_y in range(start_px_y, end_px_y + 1):
-                    gx = px_x // grid_size
-                    gy = px_y // grid_size
+            # Compute the grid cells covered by the booth/blocker area
+            start_grid_x = start_px_x // grid_size
+            start_grid_y = start_px_y // grid_size
+            end_grid_x = end_px_x // grid_size
+            end_grid_y = end_px_y // grid_size
 
+            for gx in range(start_grid_x, end_grid_x + 1):
+                for gy in range(start_grid_y, end_grid_y + 1):
                     if 0 <= gx < grid_width and 0 <= gy < grid_height:
-                        venue_grid[gy][gx] = 0
-
+                        venue_grid[gy][gx] = 0  # Mark grid cell as obstacle (blocked)
 
     return venue_grid.tolist()
+
 
 
 booth_data = load_booth_data(CSV_PATH)
@@ -238,7 +237,7 @@ def get_path(request: PathRequest):
         print(f"✅ Redirected goal to: {new_goal}")
         goal_grid = new_goal
 
-    path = a_star(grid=VENUE_GRID, start=tuple(request.from_), goal=goal_grid)
+    path = a_star(tuple(request.from_), goal_grid)
     print(f"🧭 Final path: {path}")
     if path:
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
@@ -325,8 +324,45 @@ def calibrate_system(data: CalibrationRequest):
         "physicalDistance": data.known_distance_meters
     }
 
-@app.get("/health")
-def healthcheck():
-    return {"status": "ok", "version": "April 20 4PM Fix"}
+# ====== A* Algorithm ======
+def a_star(start, goal):
+    def heuristic(a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+    neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
+    open_set = [(heuristic(start, goal), 0, start, [])]
+    visited = set()
+
+    while open_set:
+            est_total_cost, path_cost, current, path = heappop(open_set)
+
+            if current == goal:
+                return path + [current]
+
+            if current in visited:
+                continue
+            visited.add(current)
+
+            for dx, dy in neighbors:
+                nx, ny = current[0] + dx, current[1] + dy
+
+                # Check bounds
+                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
+                    # Check if the cell is walkable (1 = free space)
+                    if VENUE_GRID[ny][nx] == 1 and (nx, ny) not in visited:
+                        next_cost = path_cost + 1
+                        estimated_total = next_cost + heuristic((nx, ny), goal)
+                        heappush(open_set, (
+                            estimated_total,
+                            next_cost,
+                            (nx, ny),
+                            path + [current]
+                        ))
+
+    return []
+    
+@app.get("/")
+def root():
+    return {"message": "InMaps backend is running!"}
 
 
