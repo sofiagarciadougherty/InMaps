@@ -8,7 +8,7 @@ import numpy as np
 import json
 import ast
 import math
-from fastapi.staticfiles import StaticFiles  # <-- Add this import
+from fastapi.staticfiles import StaticFiles
 import os
 
 app = FastAPI()
@@ -17,17 +17,21 @@ app = FastAPI()
 background_dir = os.path.join(os.path.dirname(__file__), "background")
 app.mount("/background", StaticFiles(directory=background_dir), name="background")
 
-# Now, images can be accessed at:
-# http://localhost:8000/background/<image_name>
-# Example: http://localhost:8000/background/McCamish.jpg
+# Load config file for scale and conversion factors
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config", "config.json")
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
+
+# Use scale["primary"] for meters-per-pixel conversion
+METERS_PER_PIXEL = config["scale"]["primary"]  # meters per pixel
+# Set cell size so 1 grid cell = 1 meter (pixels per cell)
+CELL_SIZE = 1.0 / METERS_PER_PIXEL
+
+# Always set meters-to-grid-factor to 1.0 (1 grid = 1 meter)
+METERS_TO_GRID_FACTOR = 1.0
 
 POI_CSV_PATH = os.path.join(os.path.dirname(__file__), "poi_coordinates.csv")
 CSV_PATH = POI_CSV_PATH  # Remove booth_coordinates.csv dependency
-
-# Add calibration constants
-CELL_SIZE = 40  # pixels per grid cell
-# Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
@@ -116,10 +120,12 @@ def load_poi_and_beacon_data(csv_path):
     print(f"📡 Total beacons loaded: {len(beacons)}")
     return booths, beacons
 
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=50):
+def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=None):
+    # Always use CELL_SIZE so 1 grid cell = 1 meter
+    grid_size = CELL_SIZE
     df = pd.read_csv(csv_path)
-    grid_width = canvas_width // grid_size
-    grid_height = canvas_height // grid_size
+    grid_width = int(canvas_width // grid_size)
+    grid_height = int(canvas_height // grid_size)
     venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
@@ -175,13 +181,6 @@ BEACON_MAC_MAP = {
 
 # Create reverse mapping (MAC to ID)
 MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
-
-# Beacon positions (using iOS IDs for consistency with frontend)
-# BEACON_POSITIONS = {
-#     "14j906Gy": (0, 0),
-#     "14jr08Ef": (1, 0),
-#     "14j606Gv": (0, 1)
-# }
 
 # ====== Models ======
 class BLEReading(BaseModel):
@@ -256,7 +255,8 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-    cell_size = 50
+    # Use CELL_SIZE for grid conversion (1 cell = 1 meter)
+    cell_size = CELL_SIZE
     goal_grid = (
         int(booth["center"]["x"] // cell_size),
         int(booth["center"]["y"] // cell_size)
@@ -353,8 +353,9 @@ def get_config():
     return {
         "beaconPositions": {id: {"x": pos[0], "y": pos[1]} for id, pos in BEACON_POSITIONS.items()},
         "beaconIdMapping": BEACON_MAC_MAP,
-        "gridCellSize": CELL_SIZE,  # pixels per grid cell
-        "metersToGridFactor": METERS_TO_GRID_FACTOR,  # conversion factor for physical distance
+        "gridCellSize": CELL_SIZE,  # pixels per grid cell (1 cell = 1 meter)
+        "metersToGridFactor": METERS_TO_GRID_FACTOR,  # always 1.0 now
+        "metersPerPixel": METERS_PER_PIXEL,  # meters per pixel
         "txPower": -59  # Default reference RSSI at 1m
     }
 
