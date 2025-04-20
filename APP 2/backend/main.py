@@ -95,6 +95,7 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
 
 
 
+
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 
