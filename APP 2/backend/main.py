@@ -151,12 +151,12 @@ class CalibrationRequest(BaseModel):
 def rssi_to_distance(rssi: int, tx_power: int = -59, path_loss_exponent: float = 2.0) -> float:
     """
     Convert RSSI value to physical distance in meters
-
+    
     Args:
         rssi: The RSSI value (in dBm)
         tx_power: Calibrated signal strength at 1 meter (default: -59 dBm)
         path_loss_exponent: Environment-specific attenuation factor (default: 2.0 for free space)
-
+        
     Returns:
         Estimated distance in meters
     """
@@ -174,14 +174,14 @@ def locate_user(data: BLEScan):
         beacon_id = reading.uuid
         if ":" in reading.uuid:  # This is likely a MAC address
             beacon_id = MAC_TO_ID_MAP.get(reading.uuid, reading.uuid)
-
+        
         pos = BEACON_POSITIONS.get(beacon_id)
         if pos:
             # Convert RSSI to distance in meters
             distance_meters = rssi_to_distance(reading.rssi)
             # Convert weight based on physical distance (inverse square law)
             weight = 1 / max(0.1, distance_meters ** 2)
-
+            
             weighted_sum_x += pos[0] * weight
             weighted_sum_y += pos[1] * weight
             total_weight += weight
@@ -281,39 +281,39 @@ def get_config():
 def calibrate_system(data: CalibrationRequest):
     """
     Calibrate the system based on a known physical distance between two beacons
-
+    
     This endpoint updates the METERS_TO_GRID_FACTOR based on the provided information
     """
     global METERS_TO_GRID_FACTOR
-
+    
     # Get beacon positions
     beacon1_pos = BEACON_POSITIONS.get(data.beacon1_id)
     beacon2_pos = BEACON_POSITIONS.get(data.beacon2_id)
-
+    
     if not beacon1_pos or not beacon2_pos:
         return JSONResponse(
-            content={"error": "One or both beacon IDs not found"},
+            content={"error": "One or both beacon IDs not found"}, 
             status_code=400
         )
-
+    
     # Calculate grid distance between beacons
     dx = beacon2_pos[0] - beacon1_pos[0]
     dy = beacon2_pos[1] - beacon1_pos[1]
     grid_distance = math.sqrt(dx**2 + dy**2)
-
+    
     # Ensure we have a valid physical distance
     if data.known_distance_meters <= 0:
         return JSONResponse(
-            content={"error": "Physical distance must be greater than zero"},
+            content={"error": "Physical distance must be greater than zero"}, 
             status_code=400
         )
-
+    
     # Calculate new meters-to-grid factor
     new_factor = grid_distance / data.known_distance_meters
-
+    
     # Update the global factor
     METERS_TO_GRID_FACTOR = new_factor
-
+    
     return {
         "success": True,
         "previousFactor": METERS_TO_GRID_FACTOR,
@@ -358,7 +358,7 @@ def a_star(start, goal):
                         ))
 
     return []
-
+    
 @app.get("/")
 def root():
     return {"message": "InMaps backend is running!"}
