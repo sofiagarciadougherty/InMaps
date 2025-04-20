@@ -61,34 +61,39 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
-def generate_venue_grid(csv_path, grid_size=50):
+def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=CELL_SIZE):
     df = pd.read_csv(csv_path)
-
-    # Calculate real max width/height based on booth coordinates
-    max_x = max(df["End_X"])
-    max_y = max(df["End_Y"])
-
-    gw = int(max_x // grid_size) + 3   # Add some margin
-    gh = int(max_y // grid_size) + 3
-
-    grid = np.ones((gh, gw), dtype=int)
+    grid_width = canvas_width // grid_size
+    grid_height = canvas_height // grid_size
+    venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
+        coord_cell = row["Coordinates"]
+        if not isinstance(coord_cell, str):
+            continue
         try:
-            sx = int(float(row["Start_X"]))
-            sy = int(float(row["Start_Y"]))
-            ex = int(float(row["End_X"]))
-            ey = int(float(row["End_Y"]))
-        except:
+            coords = json.loads(coord_cell.replace('\"', '"'))
+        except Exception:
             continue
 
-        for px in range(sx, ex+1):
-            for py in range(sy, ey+1):
-                gx, gy = px // grid_size, py // grid_size
-                if 0 <= gx < gw and 0 <= gy < gh:
-                    grid[gy][gx] = 0
+        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
+            start_px_x = int(coords["start"]["x"])
+            start_px_y = int(coords["start"]["y"])
+            end_px_x = int(coords["end"]["x"])
+            end_px_y = int(coords["end"]["y"])
 
-    return grid.tolist()
+            # Compute the grid cells covered by the booth/blocker area
+            start_grid_x = start_px_x // grid_size
+            start_grid_y = start_px_y // grid_size
+            end_grid_x = end_px_x // grid_size
+            end_grid_y = end_px_y // grid_size
+
+            for gx in range(start_grid_x, end_grid_x + 1):
+                for gy in range(start_grid_y, end_grid_y + 1):
+                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
+                        venue_grid[gy][gx] = 0  # Mark grid cell as obstacle (blocked)
+
+    return venue_grid.tolist()
 
 
 booth_data = load_booth_data(CSV_PATH)
