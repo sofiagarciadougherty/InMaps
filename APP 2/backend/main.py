@@ -251,7 +251,7 @@ def get_map_data():
         visual_elements.append({
             "name":        booth["name"],
             "type":        booth["type"],
-+       "description": booth["description"],
+            "description": booth["description"],
             "start":       booth["area"]["start"],
             "end":         booth["area"]["end"]
         })
