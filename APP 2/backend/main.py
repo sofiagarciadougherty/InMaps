@@ -235,7 +235,7 @@ def get_path(request: PathRequest):
         print(f"✅ Redirected goal to: {new_goal}")
         goal_grid = new_goal
 
-    path = a_star(tuple(request.from_), goal_grid)
+    path = a_star(tuple(request.from_), goal_grid, VENUE_GRID)
     print(f"🧭 Final path: {path}")
     if path:
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
