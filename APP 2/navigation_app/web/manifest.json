@@ -1,6 +1,6 @@
 {
-    "name": "navigation_app",
-    "short_name": "navigation_app",
+    "name": "InMaps",
+    "short_name": "InMaps",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
