@@ -293,7 +293,10 @@ def get_path(request: PathRequest):
         new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
         if not new_goal:
             print("❌ No valid nearby goal found.")
-            return {"path": []}
+            return JSONResponse(
+                content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
+                status_code=404
+            )
         print(f"✅ Redirected goal to: {new_goal}")
         goal_grid = new_goal
 
@@ -407,8 +410,8 @@ def is_inside_walkable(x, y, walkable_zones):
     for area in walkable_zones:
         sx, sy = area["start"]
         ex, ey = area["end"]
-        min_x, max_x = min(sx, ex), max(sx, ex)
-        min_y, max_y = min(sy, ey), max(sy, ey)
+        min_x, max_x = min(sx, ex)
+        min_y, max_y = max(sy, ey)
         if min_x <= x <= max_x and min_y <= y <= max_y:
             return True
     return False
