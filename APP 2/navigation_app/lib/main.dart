@@ -110,12 +110,16 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     // Start position tracking
     positionTracker.start();
   }
+  final TextEditingController _boothController = TextEditingController();
+  final FocusNode _boothFocusNode = FocusNode();
 
   @override
   void dispose() {
     _scanSubscription?.cancel();
     _positionSubscription?.cancel();
     positionTracker.dispose();
+    _boothController.dispose();
+    _boothFocusNode.dispose();
     super.dispose();
   }
 
@@ -561,7 +565,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             ),
             const SizedBox(height: 6),
             RawAutocomplete<String>(
-              optionsBuilder: (textEditingValue) {
+              textEditingController: _boothController,
+              focusNode: _boothFocusNode,
+              optionsBuilder: (TextEditingValue textEditingValue) {
                 if (textEditingValue.text.isEmpty) {
                   return const Iterable<String>.empty();
                 }
@@ -569,14 +575,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                     .toLowerCase()
                     .contains(textEditingValue.text.toLowerCase()));
               },
-              onSelected: (selection) {
+              onSelected: (String selection) {
                 setState(() {
                   selectedBooth = selection;
+                  _boothController.text = selection;
                 });
-                requestPath(selection); // Automatically request path
               },
               fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                controller.text = selectedBooth;
                 return TextField(
                   controller: controller,
                   focusNode: focusNode,
@@ -589,7 +594,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                       borderSide: BorderSide.none,
                     ),
                   ),
-                  onChanged: (value) => selectedBooth = value,
+                  onEditingComplete: onEditingComplete,
                 );
               },
               optionsViewBuilder: (context, onSelected, options) {
@@ -614,7 +619,15 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: openMapScreen,
+                onPressed: (){
+                  if (!boothNames.contains(selectedBooth)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Please enter a valid booth name.")),
+                    );
+                    return;
+                  }
+                  openMapScreen();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
                   foregroundColor: Colors.white,
