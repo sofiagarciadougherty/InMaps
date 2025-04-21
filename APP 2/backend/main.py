@@ -1,469 +1,620 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List, Dict
-from fastapi.responses import JSONResponse
-from heapq import heappop, heappush
-import pandas as pd
-import numpy as np
-import json
-import ast
-import math
-import re
-from collections import deque
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:math';
+import 'package:flutter_compass/flutter_compass.dart';
+import 'dart:async';
+import 'package:sensors_plus/sensors_plus.dart';
+import './utils/vector2d.dart';
+import 'package:vector_math/vector_math_64.dart' show Vector3;
 
+class MapScreen extends StatefulWidget {
+  final List<List<dynamic>> path;
+  final List<int> startLocation;
+  final double headingDegrees;
+  final Vector2D initialPosition;
+  final String selectedBoothName;
+  final Function(bool)? onArrival;
 
-app = FastAPI()
+  MapScreen({
+    required this.path,
+    required this.startLocation,
+    required this.headingDegrees,
+    required this.initialPosition,
+    required this.selectedBoothName,
+    this.onArrival,
+  });
 
-CSV_PATH = "booth_coordinates.csv"
-
-# Add calibration constants
-CELL_SIZE = 40  # pixels per grid cell
-# Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
-
-def load_booth_data(csv_path):
-    df = pd.read_csv(csv_path, encoding_errors='replace',on_bad_lines="skip")
-    booths = []
-    print("📦 Loading booths from CSV...")
-
-    for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
-            continue
-
-        # 1) Quote unquoted keys so it's valid JSON
-        try:
-            coord_str = re.sub(
-                r'([{,]\s*)(\w+)\s*:',
-                r'\1"\2":',
-                coord_cell
-            )
-            coords = json.loads(coord_str)
-            center = ast.literal_eval(row["Center Coordinates"])
-        except Exception as e:
-            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
-            continue
-
-        # 2) Determine type
-        type = row["Type"].strip()
-        if "beacon" in type.lower():
-            booth_type = "beacon"
-        elif "booth" in type.lower():
-            booth_type = "booth"
-        elif "zone" in type.lower():
-            booth_type = "Zone"
-        elif "stairs" in type.lower():
-             booth_type = "stairs"
-        else:
-            booth_type = "other"
-            
-        # Get the name from the row
-        name = str(row["Name"]).strip()
-
-        # 3) Pull out description
-        description = str(row["Description"]).strip()
-
-        print(f"✅ Loaded booth: {name} ({booth_type})")
-
-        booths.append({
-            "booth_id": int(row["ID"]),         # was row["Booth ID"]
-            "name": name,
-            "description": description,         # now defined
-            "type": booth_type,
-            "area": {
-                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
-                "end":   {"x": coords["end"]["x"],   "y": coords["end"]["y"]},
-            },
-            "center": {"x": center[0], "y": center[1]}
-        })
-
-    print(f"📊 Total booths loaded: {len(booths)}")
-    return booths
-
-def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
-    df = pd.read_csv(csv_path, encoding_errors='replace')
-    parsed = []
-    for cell in df["Coordinates"]:
-        if not isinstance(cell, str): continue
-        coord_str = re.sub(r'([{,]\s*)(\w+)\s*:', r'\1"\2":', cell)
-        try:
-            coords = json.loads(coord_str)
-            parsed.append(coords)
-        except json.JSONDecodeError:
-            continue
-
-    max_x = max(c["end"]["x"] for c in parsed)
-    max_y = max(c["end"]["y"] for c in parsed)
-    width  = (max_x + grid_size) // grid_size
-    height = (max_y + grid_size) // grid_size
-    grid = np.ones((height, width), dtype=int)
-
-    for coords in parsed:
-        sx, sy = coords["start"]["x"], coords["start"]["y"]
-        ex, ey = coords["end"]["x"],   coords["end"]["y"]
-        for gx in range(sx//grid_size, ex//grid_size + 1):
-            for gy in range(sy//grid_size, ey//grid_size + 1):
-                if 0 <= gx < width and 0 <= gy < height:
-                    grid[gy][gx] = 0
-    return grid.tolist()
-
-
-
-
-booth_data = load_booth_data(CSV_PATH)
-VENUE_GRID = generate_venue_grid(CSV_PATH)
-WALKABLE_ZONES = []
-
-for booth in booth_data:
-    if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
-        start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
-        end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
-        WALKABLE_ZONES.append({
-            "start": start,
-            "end": end
-        })
-
-# Mapping between iOS beacon IDs and Android MAC addresses
-BEACON_MAC_MAP = {
-    "14b00739": "00:FA:B6:2F:50:8C",
-    "14b6072G": "00:FA:B6:2F:51:28",
-    "14b7072H": "00:FA:B6:2F:51:25",
-    "14bC072N": "00:FA:B6:2F:51:16",
-    "14bE072Q": "00:FA:B6:2F:51:10",
-    "14bF072R": "00:FA:B6:2F:51:0D",
-    "14bK072V": "00:FA:B6:2F:51:01",
-    "14bM072X": "00:FA:B6:2F:50:FB",
-    "14j006gQ": "00:FA:B6:31:02:BA",
-    "14j606Gv": "00:FA:B6:31:12:F8",
-    "14j706Gw": "00:FA:B6:31:12:F5",
-    "14j706gX": "00:FA:B6:31:02:A5",
-    "14j906Gy": "00:FA:B6:31:12:EF",
-    "14jd06i0": "00:FA:B6:31:01:A0",
-    "14jj06i6": "00:FA:B6:31:01:8E",
-    "14jr06gF": "00:FA:B6:31:02:D5",
-    "14jr08Ef": "00:FA:B6:30:C2:F1",
-    "14js06gG": "00:FA:B6:31:02:D2",
-    "14jv06gK": "00:FA:B6:31:02:C9",
-    "14jw08Ek": "00:FA:B6:30:C2:E2"
-}
-NAME_TO_ID = {
-    "Beacon 1":  "14b00739",
-    "Beacon 2":  "14b6072G",
-    "Beacon 3":  "14b7072H",
-    "Beacon 4":  "14bC072N",
-    "Beacon 5":  "14bE072Q",
-    "Beacon 6":  "14bF072R",
-    "Beacon 7":  "14bK072V",
-    "Beacon 8":  "14bM072X",
-    "Beacon 9":  "14j006gQ",
-    "Beacon 10": "14j606Gv",
-    "Beacon 11": "14j706Gw",
-    "Beacon 12": "14j706gX",
-    "Beacon 13": "14j906Gy",
-    "Beacon 14": "14jd06i0",
-    "Beacon 15": "14jj06i6",
-    "Beacon 16": "14jr06gF",
-    "Beacon 17": "14jr08Ef",
-    "Beacon 18": "14js06gG",
-    "Beacon 19": "14jv06gK",
-    "Beacon 20": "14jw08Ek",
+  @override
+  _MapScreenState createState() => _MapScreenState();
 }
 
-# Create reverse mapping (MAC to ID)
-MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+  List<dynamic> elements = [];
+  double maxX = 0;
+  double maxY = 0;
+  List<int> lastGridPosition = [-1, -1];
+  List<List<dynamic>> currentPath = [];
 
-# Beacon positions (using iOS IDs for consistency with frontend)
-BEACON_POSITIONS = {}
-for b in booth_data:
-    if b["type"] != "beacon":
-        continue
-    ascii_id = NAME_TO_ID.get(b["name"])
-    if not ascii_id:
-        continue
-    BEACON_POSITIONS[ascii_id] = (
-        int(b["center"]["x"] // CELL_SIZE),
-        int(b["center"]["y"] // CELL_SIZE),
-    )
+  final TransformationController _transformationController = TransformationController();
+  late AnimationController _moveController;
+  late Animation<Offset> _moveAnimation;
+  Offset animatedOffset = Offset.zero;
 
+  double currentHeading = 0.0;
+  double headingRadians = 0.0;
+  StreamSubscription<CompassEvent>? _headingSub;
+  StreamSubscription<AccelerometerEvent>? _accelSub;
 
+  // Booth tap & arrival overlays
+  OverlayEntry? _overlayEntry;
+  OverlayEntry? _arrivalOverlay;
+  bool hasNotifiedArrival = false;
 
-# ====== Models ======
-class BLEReading(BaseModel):
-    uuid: str
-    rssi: int
+  Vector2D imuOffset = Vector2D(0, 0);
+  int stepCount = 0;
 
-class BLEScan(BaseModel):
-    ble_data: List[BLEReading]
+  Offset basePosition = Offset.zero;
+  static const double cellSize = 40.0;
 
-class PathRequest(BaseModel):
-    from_: List[int]
-    to: str
+  @override
+  void initState() {
+    super.initState();
 
-class CalibrationRequest(BaseModel):
-    beacon1_id: str
-    beacon2_id: str
-    known_distance_meters: float
+    basePosition = Offset(widget.initialPosition.x, widget.initialPosition.y);
+    currentPath = [
+          widget.startLocation,
+          ...widget.path
+        ].map<List<dynamic>>((row) => List<dynamic>.from(row)).toList();
+    currentPath = List.from(widget.path);
 
-# Function to convert RSSI to physical distance in meters
-def rssi_to_distance(rssi: int, tx_power: int = -59, path_loss_exponent: float = 2.0) -> float:
-    """
-    Convert RSSI value to physical distance in meters
+    _moveController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    )..addListener(() {
+      setState(() {
+        animatedOffset = _moveAnimation.value;
+      });
+    });
 
-    Args:
-        rssi: The RSSI value (in dBm)
-        tx_power: Calibrated signal strength at 1 meter (default: -59 dBm)
-        path_loss_exponent: Environment-specific attenuation factor (default: 2.0 for free space)
+    fetchMapData();
 
-    Returns:
-        Estimated distance in meters
-    """
-    return math.pow(10, (tx_power - rssi) / (10 * path_loss_exponent))
+    _headingSub = FlutterCompass.events?.listen((event) {
+      if (event.heading != null) {
+        setState(() {
+          currentHeading = event.heading!;
+          headingRadians = currentHeading * pi / 180;
+        });
+      }
+    });
 
-# ====== API ======
-@app.post("/locate")
-def locate_user(data: BLEScan):
-    weighted_sum_x = 0
-    weighted_sum_y = 0
-    total_weight = 0
+    _accelSub = accelerometerEvents.listen((event) {
+      double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      if (magnitude > 12) {
+        stepCount++;
+        final stepDistance = 0.7 * cellSize;
+        final correctedHeading = headingRadians - _getMapRotationAngle();
+        final newOffset = Offset(
+          imuOffset.x + cos(correctedHeading) * stepDistance,
+          imuOffset.y + sin(correctedHeading) * stepDistance,
+        );
 
-    for reading in data.ble_data:
-        # Check if the UUID is a MAC address and map it if necessary
-        beacon_id = reading.uuid
-        if ":" in reading.uuid:  # This is likely a MAC address
-            beacon_id = MAC_TO_ID_MAP.get(reading.uuid, reading.uuid)
+        _moveAnimation = Tween<Offset>(
+          begin: Offset(imuOffset.x, imuOffset.y),
+          end: newOffset,
+        ).animate(CurvedAnimation(
+          parent: _moveController,
+          curve: Curves.easeOut,
+        ));
 
-        pos = BEACON_POSITIONS.get(beacon_id)
-        if pos:
-            # Convert RSSI to distance in meters
-            distance_meters = rssi_to_distance(reading.rssi)
-            # Convert weight based on physical distance (inverse square law)
-            weight = 1 / max(0.1, distance_meters ** 2)
+        _moveController.forward(from: 0);
 
-            weighted_sum_x += pos[0] * weight
-            weighted_sum_y += pos[1] * weight
-            total_weight += weight
+        imuOffset = Vector2D(newOffset.dx, newOffset.dy);
+        updatePath();
+        _centerOnUserAfterMove();
+        _checkArrival();
+      }
+    });
+  }
 
-    if total_weight == 0:
-        return {"x": -1, "y": -1}
-
-    x = round(weighted_sum_x / total_weight)
-    y = round(weighted_sum_y / total_weight)
-    return {"x": x, "y": y}
-
-@app.post("/path")
-def get_path(request: PathRequest):
-    print("✅ /path endpoint hit:", request)
-    booth_name = request.to.strip().lower()
-    booth = next((b for b in booth_data if b["name"].strip().lower() == booth_name), None)
-
-    if not booth:
-        print("❌ Booth not found:", booth_name)
-        return JSONResponse(content={"error": "Booth not found"}, status_code=404)
-
-    goal_x = int(booth["center"]["x"] // CELL_SIZE)
-    goal_y = int(booth["center"]["y"] // CELL_SIZE)
-    n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
-    goal_x = max(0, min(goal_x, n_cols - 1))
-    goal_y = max(0, min(goal_y, n_rows - 1))
-    goal_grid = (goal_x, goal_y)
-
-    def find_nearest_free_cell(goal, grid):
-        h, w = len(grid), len(grid[0])
-        q = deque([(goal[0], goal[1])])
-        seen = { (goal[0], goal[1]) }
-        while q:
-            x, y = q.popleft()
-            if grid[y][x] == 1:
-                return (x, y)
-            for dx, dy in ((0,1),(1,0),(-1,0),(0,-1)):
-                nx, ny = x+dx, y+dy
-                if 0 <= nx < w and 0 <= ny < h and (nx,ny) not in seen:
-                    seen.add((nx,ny))
-                    q.append((nx,ny))
-        return None
-
-    print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
-    print("🧱 Sample grid slice at goal:")
-    print(np.array(VENUE_GRID)[goal_grid[1]-1:goal_grid[1]+2, goal_grid[0]-1:goal_grid[0]+2])
-
-    # 🔁 If goal is blocked, find a nearby free cell
-    if VENUE_GRID[goal_grid[1]][goal_grid[0]] == 0:
-        print("⚠️ Goal is blocked. Searching for nearby free cell...")
-        new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
-        if not new_goal:
-            print("❌ No valid nearby goal found (even after search).")
-            return JSONResponse(
-                content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
-                status_code=404
-            )
-        print(f"✅ Redirected goal to: {new_goal}")
-        goal_grid = new_goal
-
-    path = a_star(tuple(request.from_), goal_grid)
-
-    if not path:
-        print("❌ A* search failed: no path found even after redirecting goal.")
-        return JSONResponse(
-            content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
-            status_code=404
-        )
-
-    print(f"🧭 Final path: {path}")
-    print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
-
-    return {"path": path}
-
-
-
-@app.get("/booths")
-def get_all_booths():
-    return booth_data
-
-@app.get("/booths/{booth_id}")
-def get_booth_by_id(booth_id: int):
-    booth = next((b for b in booth_data if b["booth_id"] == booth_id), None)
-    return booth or {"error": "Booth not found"}
-
-
-@app.get("/map-data")
-def get_map_data():
-    global WALKABLE_ZONES
-    visual_elements = []
-    WALKABLE_ZONES.clear()  # Clear old walkable zones first
-
-    for booth in booth_data:
-        element = {
-            "name": booth["name"],
-            "description": booth["description"],
-            "type": booth["type"],
-            "start": booth["area"]["start"],
-            "end": booth["area"]["end"]
+  Future<void> fetchMapData() async {
+    final url = Uri.parse("https://inmaps.onrender.com/map-data");
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final fetched = json["elements"];
+        double maxXLocal = 0, maxYLocal = 0;
+        for (var el in fetched) {
+          final sx = (el["start"]["x"] as num).toDouble();
+          final sy = (el["start"]["y"] as num).toDouble();
+          final ex = (el["end"]["x"] as num).toDouble();
+          final ey = (el["end"]["y"] as num).toDouble();
+          maxXLocal = [sx, ex, maxXLocal].reduce((a, b) => a > b ? a : b);
+          maxYLocal = [sy, ey, maxYLocal].reduce((a, b) => a > b ? a : b);
         }
-        visual_elements.append(element)
-
-        # ⚡️ If the booth is a walkable zone, add it
-        if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
-            start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
-            start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
-            end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
-            end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
-            WALKABLE_ZONES.append({
-                "start": (start_x, start_y),
-                "end":   (end_x, end_y)
-            })
-
-    print(f"✅ Loaded {len(WALKABLE_ZONES)} walkable zones.")
-    return JSONResponse(content={"elements": visual_elements})
-
-
-@app.get("/config")
-def get_config():
-    """Provide configuration data for the mobile app, including beacon positions and mapping."""
-    return {
-        "beaconPositions": {id: {"x": pos[0], "y": pos[1]} for id, pos in BEACON_POSITIONS.items()},
-        "beaconIdMapping": BEACON_MAC_MAP,
-        "gridCellSize": CELL_SIZE,  # pixels per grid cell
-        "metersToGridFactor": METERS_TO_GRID_FACTOR,  # conversion factor for physical distance
-        "txPower": -59  # Default reference RSSI at 1m
+        setState(() {
+          elements = fetched;
+          maxX = maxXLocal + 100;
+          maxY = maxYLocal + 100;
+        });
+      }
+    } catch (e) {
+      print("❌ Map fetch failed: $e");
     }
+  }
 
-@app.post("/calibrate")
-def calibrate_system(data: CalibrationRequest):
-    """
-    Calibrate the system based on a known physical distance between two beacons
+  Future<void> updatePath() async {
+    final px = basePosition.dx + imuOffset.x;
+    final py = basePosition.dy + imuOffset.y;
+    final xg = (px / cellSize).floor();
+    final yg = (py / cellSize).floor();
+    if (xg == lastGridPosition[0] && yg == lastGridPosition[1]) return;
+    lastGridPosition = [xg, yg];
 
-    This endpoint updates the METERS_TO_GRID_FACTOR based on the provided information
-    """
-    global METERS_TO_GRID_FACTOR
-
-    # Get beacon positions
-    beacon1_pos = BEACON_POSITIONS.get(data.beacon1_id)
-    beacon2_pos = BEACON_POSITIONS.get(data.beacon2_id)
-
-    if not beacon1_pos or not beacon2_pos:
-        return JSONResponse(
-            content={"error": "One or both beacon IDs not found"},
-            status_code=400
-        )
-
-    # Calculate grid distance between beacons
-    dx = beacon2_pos[0] - beacon1_pos[0]
-    dy = beacon2_pos[1] - beacon1_pos[1]
-    grid_distance = math.sqrt(dx*2 + dy*2)
-
-    # Ensure we have a valid physical distance
-    if data.known_distance_meters <= 0:
-        return JSONResponse(
-            content={"error": "Physical distance must be greater than zero"},
-            status_code=400
-        )
-
-    # Calculate new meters-to-grid factor
-    new_factor = grid_distance / data.known_distance_meters
-
-    # Update the global factor
-    METERS_TO_GRID_FACTOR = new_factor
-
-    return {
-        "success": True,
-        "previousFactor": METERS_TO_GRID_FACTOR,
-        "newFactor": new_factor,
-        "gridDistance": grid_distance,
-        "physicalDistance": data.known_distance_meters
+    try {
+      final resp = await http.post(
+        Uri.parse('https://inmaps.onrender.com/path'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({"from_": [xg, yg], "to": widget.selectedBoothName}),
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        setState(() {
+          currentPath = List<List<dynamic>>.from(data['path']);
+        });
+      }
+    } catch (e) {
+      print('❌ Path fetch failed: $e');
     }
+  }
 
-# ====== A* Algorithm ======
-def is_inside_walkable(x, y, walkable_zones):
-    for area in walkable_zones:
-        sx, sy = area["start"]
-        ex, ey = area["end"]
-        min_x = min(sx, ex)
-        max_x = max(sx, ex)
-        min_y = min(sy, ey)
-        max_y = max(sy, ey)
+  // Booth description overlay
+  void _showBoothDescription(dynamic booth) {
+    _removeOverlay();
+    final screen = MediaQuery.of(context).size;
+    _overlayEntry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        child: Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              width: 300,
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF008C9E).withOpacity(0.8),
+                          const Color(0xFF008C9E),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          booth["type"] == "booth" ? Icons.store :
+                          booth["type"] == "blocker" ? Icons.block : Icons.info,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            booth["name"],
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      booth["description"] ?? "No description available",
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: TextButton(
+                      onPressed: _removeOverlay,
+                      child: const Text("Close"),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
 
-        if min_x <= x <= max_x and min_y <= y <= max_y:
-            return True
-    return False
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
 
+  // Arrival notification
+  void _checkArrival() {
+    if (hasNotifiedArrival) return;
+    final userCenter = Offset(basePosition.dx + imuOffset.x, basePosition.dy + imuOffset.y);
+    for (var el in elements) {
+      if (el["type"] == "booth" && el["name"] == widget.selectedBoothName) {
+        final sx = el["start"]["x"] as num;
+        final sy = el["start"]["y"] as num;
+        final ex = el["end"]["x"] as num;
+        final ey = el["end"]["y"] as num;
+        final boothCenter = Offset((sx + ex)/2, (sy + ey)/2);
+        final dx = boothCenter.dx - userCenter.dx;
+        final dy = boothCenter.dy - userCenter.dy;
+        if (sqrt(dx*dx + dy*dy) < 20) {
+          hasNotifiedArrival = true;
+          _showArrivalNotification();
+          widget.onArrival?.call(true);
+          break;
+        }
+      }
+    }
+  }
 
-def a_star(start, goal):
-    def heuristic(a, b):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+  void _showArrivalNotification() {
+    _removeArrivalOverlay();
+    _arrivalOverlay = OverlayEntry(
+      builder: (ctx) => Positioned(
+        top: MediaQuery.of(context).size.height * 0.1,
+        left: 0, right: 0,
+        child: Center(
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 500),
+            tween: Tween(begin: 0.0, end: 1.0),
+            builder: (c, v, child) => Transform.scale(
+              scale: v,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal:24, vertical:16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade400, Colors.green.shade600],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle_outline, color: Colors.white, size:28),
+                    const SizedBox(width:12),
+                    Text("You've arrived at ${widget.selectedBoothName}!", style: const TextStyle(color: Colors.white, fontSize:18, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_arrivalOverlay!);
+    Future.delayed(const Duration(seconds:3), _removeArrivalOverlay);
+  }
 
-    neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
-    open_set = [(heuristic(start, goal), 0, start, [])]
-    visited = set()
+  void _removeArrivalOverlay() {
+    _arrivalOverlay?.remove();
+    _arrivalOverlay = null;
+  }
 
-    while open_set:
-            est_total_cost, path_cost, current, path = heappop(open_set)
+  double _getMapRotationAngle() {
+    // Extract current rotation from controller
+    return _transformationController.value.getMaxScaleOnAxis() == 0
+        ? 0.0
+        : atan2(_transformationController.value.row1.x, _transformationController.value.row0.x);
+  }
 
-            if current == goal:
-                return path + [current]
+  void _centerOnUser() {
+    final user = Offset(basePosition.dx + imuOffset.x, basePosition.dy + imuOffset.y);
+    const zoom = 2.0;
+    final size = MediaQuery.of(context).size;
+    final matrix = Matrix4.identity()
+      ..scale(zoom)
+      ..translate(-user.dx + size.width/(2*zoom), -user.dy + size.height/(2*zoom));
+    _transformationController.value = matrix;
+  }
 
-            if current in visited:
-                continue
-            visited.add(current)
+  void _centerOnUserAfterMove() {
+    final user = Offset(basePosition.dx + imuOffset.x, basePosition.dy + imuOffset.y);
+    final scale = _transformationController.value.getMaxScaleOnAxis();
+    final size = MediaQuery.of(context).size;
+    final matrix = Matrix4.identity()
+      ..scale(scale)
+      ..translate(-user.dx + size.width/(2*scale), -user.dy + size.height/(2*scale));
+    _transformationController.value = matrix;
+  }
 
-            for dx, dy in neighbors:
-                nx, ny = current[0] + dx, current[1] + dy
+  @override
+  void dispose() {
+    _moveController.dispose();
+    _transformationController.dispose();
+    _headingSub?.cancel();
+    _accelSub?.cancel();
+    _removeOverlay();
+    _removeArrivalOverlay();
+    super.dispose();
+  }
 
-                # Check bounds
-                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
-                    # Check if the cell is walkable (1 = free space)
-                    if is_inside_walkable(nx, ny, WALKABLE_ZONES) and (nx, ny) not in visited:
-                        next_cost = path_cost + 1
-                        estimated_total = next_cost + heuristic((nx, ny), goal)
-                        heappush(open_set, (
-                            estimated_total,
-                            next_cost,
-                            (nx, ny),
-                            path + [current]
-                        ))
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: Row(children: [Image.asset('assets/images/logo.png', height:45)]),
+        iconTheme: const IconThemeData(color: Colors.black87),
+      ),
+      body: elements.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
+        children: [
+          InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: 0.2,
+            maxScale: 5.0,
+            boundaryMargin: const EdgeInsets.all(1000),
+            panEnabled: true,
+            scaleEnabled: true,
+            clipBehavior: Clip.none,
+            constrained: false,
+            child: Container(
+              width: maxX,
+              height: maxY,
+              child: Stack(
+                children: [
+                  CustomPaint(
+                    size: Size(maxX, maxY),
+                    painter: MapPainter(
+                        elements,
+                        currentPath,
+                        Offset(basePosition.dx, basePosition.dy),
+                        currentHeading,
+                        animatedOffset,
+                        _getMapRotationAngle()
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTapDown: (details) {
+                        final localPos = details.localPosition;  // ← raw local screen position
 
-    return []
-    
-@app.get("/")
-def root():
-    return {"message": "InMaps backend is running!"}
+                        for (var el in elements) {
+                          if (el["type"].toString().toLowerCase() != "booth") continue;
+
+                          final start = el["start"];
+                          final end = el["end"];
+                          final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                          final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                          final boothRect = Rect.fromPoints(startOffset, endOffset);
+
+                          if (boothRect.contains(localPos)) {
+                            print("🎯 Correct booth tapped: ${el['name']}");
+                            _showBoothDescription(el);
+                            return;
+                          }
+                        }
+
+                        _removeOverlay();
+                      },
+                        child: Container(color: Colors.transparent),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: _centerOnUser,
+              backgroundColor: const Color(0xFF008C9E),
+              child: const Icon(Icons.my_location, color: Colors.white),
+              tooltip: 'Center on my location',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class MapPainter extends CustomPainter {
+  final List<dynamic> elements;
+  final List<List<dynamic>> path;
+  final Offset basePosition;
+  final double headingDegrees;
+  final Offset animatedOffset;
+  final double manualRotation;
+
+  static const double cellSize =40.0;
+
+  MapPainter(
+      this.elements,
+      this.path,
+      this.basePosition,
+      this.headingDegrees,
+      this.animatedOffset,
+      this.manualRotation,
+      );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Rect.fromLTWH(0,0,size.width,size.height), Paint()..color = Colors.white);
+    final userCenter = basePosition + animatedOffset;
+    canvas.save();
+    canvas.translate(userCenter.dx, userCenter.dy);
+    canvas.rotate(manualRotation);
+    canvas.translate(-userCenter.dx, -userCenter.dy);
+
+    final paintBooth = Paint()..color = const Color(0xFF008C9E).withOpacity(0.15);
+    final paintBlocker = Paint()..color = Colors.red.withOpacity(0.2);
+    final paintOther = Paint()..color = Colors.blueGrey.withOpacity(0.1);
+    final paintPathGlow = Paint()
+      ..color = const Color(0xFF008C9E).withOpacity(0.3)
+      ..strokeWidth = 6.0
+      ..strokeCap = StrokeCap.round;
+    final paintPath = Paint()
+      ..color = const Color(0xFF008C9E)
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    final paintUserBorder = Paint()..color = Colors.white;
+    final paintUser = Paint()..color = const Color(0xFF008C9E);
+
+    // Draw shadows
+    for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+      if (type == "zone"){
+        continue;
+      }
+      if (type == "booth") {
+        final start = el["start"];
+        final end = el["end"];
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromPoints(Offset(start["x"].toDouble(), start["y"].toDouble()), Offset(end["x"].toDouble(), end["y"].toDouble())).translate(2,2),
+            const Radius.circular(12),
+          ),
+          Paint()..color = Colors.black.withOpacity(0.1)..maskFilter = const MaskFilter.blur(BlurStyle.normal,4),
+        );
+      }
+    }
+    // Draw elements
+    for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+
+      // Skip zones completely
+      if (type == "zone" || type == "beacon") continue;
+
+      final start = el["start"];
+      final end = el["end"];
+      final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+      final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+
+      // Draw shadows only for booths
+      if (type == "booth") {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromPoints(startOffset, endOffset).translate(2,2),
+            const Radius.circular(12),
+          ),
+          Paint()..color = Colors.black.withOpacity(0.1)..maskFilter = const MaskFilter.blur(BlurStyle.normal,4),
+        );
+      }
+
+      Paint paint;
+      if (type == "blocker") {
+        paint = paintBlocker;
+      } else if (type == "booth") {
+        paint = Paint()..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [const Color(0xFF008C9E).withOpacity(0.2), const Color(0xFF008C9E).withOpacity(0.3)],
+        ).createShader(Rect.fromPoints(startOffset, endOffset));
+      } else {
+        continue;
+      }
+
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromPoints(startOffset, endOffset),
+              const Radius.circular(12)
+          ),
+          paint
+      );
+
+      if (type == "booth") {
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromPoints(startOffset, endOffset),
+                const Radius.circular(12)
+            ),
+            Paint()
+              ..color = const Color(0xFF008C9E).withOpacity(0.3)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5
+        );
+      }
+    }
+    // Draw path
+    if (path.isNotEmpty) {
+      for (int i=0; i<path.length-1; i++) {
+        final p1 = Offset((path[i][0]+0.5)*cellSize, (path[i][1]+0.5)*cellSize);
+        final p2 = Offset((path[i+1][0]+0.5)*cellSize, (path[i+1][1]+0.5)*cellSize);
+        canvas.drawLine(p1,p2,paintPathGlow);
+        canvas.drawLine(p1,p2,paintPath);
+      }
+    }
+    // Draw user
+    canvas.drawCircle(userCenter,10,paintUserBorder);
+    canvas.drawCircle(userCenter,6,paintUser);
+    // Draw labels
+    final textStyle = const TextStyle(color: Colors.black87, fontSize:12, fontWeight:FontWeight.w500);
+    for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+
+      // Skip zones and beacons for labels too
+      if (!["booth", "blocker"].contains(type)) continue;
+
+      final start = el["start"];
+      final end = el["end"];
+      final name = el["name"].toString().substring(0, min(3, el["name"].toString().length));
+      final center = Offset((start["x"].toDouble()+end["x"].toDouble())/2, (start["y"].toDouble()+end["y"].toDouble())/2);
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(-manualRotation);
+      canvas.translate(-center.dx, -center.dy);
+      final tp = TextPainter(text: TextSpan(text: name, style: textStyle), textDirection: TextDirection.ltr);
+      tp.layout();
+      tp.paint(canvas, center-Offset(tp.width/2,tp.height/2));
+      canvas.restore();
+    }
+    canvas.restore();
+    // Draw cone unchanged by map rotation
+    const coneLen=80.0, coneAng=pi/6;
+    final hr = headingDegrees*pi/180;
+    final c1 = userCenter+Offset(cos(hr-coneAng),sin(hr-coneAng))*coneLen;
+    final c2 = userCenter+Offset(cos(hr+coneAng),sin(hr+coneAng))*coneLen;
+    final cone = Path()..moveTo(userCenter.dx,userCenter.dy)..lineTo(c1.dx,c1.dy)..lineTo(c2.dx,c2.dy)..close();
+    canvas.drawPath(cone, Paint()..color=const Color(0xFF008C9E).withOpacity(0.15)..style=PaintingStyle.fill);
+  }
+
+  @override
+  bool shouldRepaint(MapPainter old) => true;
+}
