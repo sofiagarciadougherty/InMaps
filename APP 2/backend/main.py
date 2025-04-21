@@ -24,12 +24,11 @@ def load_booth_data(csv_path):
     print("📦 Loading booths from CSV...")
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
+        coord_cell = row["Start_X"]
         if not isinstance(coord_cell, str):
             print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
             continue
         try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
             print(f"⚠️ Skipping row — JSON parsing failed: {e}")
@@ -47,14 +46,15 @@ def load_booth_data(csv_path):
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
         booths.append({
-            "booth_id": int(row["Booth ID"]),
-            "name": name,
+            "booth_id": int(row["ID"]),
+            "name":      row["Name"],
+            "description":      row["Description"],
             "type": booth_type,
             "area": {
-                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
-                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
+                "start": {"x": start_x, "y": start_y},
+                "end":   {"x": end_x,   "y": end_y},
             },
-            "center": {"x": center[0], "y": center[1]}
+            "center": {"x": center_x, "y": center_y}
         })
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
@@ -66,19 +66,15 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
     venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
+        coord_cell = row["Start_X"]
         if not isinstance(coord_cell, str):
-            continue
-        try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
-        except Exception:
             continue
 
         if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(coords["start"]["x"])
-            start_px_y = int(coords["start"]["y"])
-            end_px_x = int(coords["end"]["x"])
-            end_px_y = int(coords["end"]["y"])
+            start_px_x = int(row["Start_X"])
+            start_px_y = int(row["Start_Y"])
+            end_px_x = int(row["End_X"])
+            end_px_y = int(row["End_Y"])
 
             # Compute the grid cells covered by the booth/blocker area
             start_grid_x = start_px_x // grid_size
