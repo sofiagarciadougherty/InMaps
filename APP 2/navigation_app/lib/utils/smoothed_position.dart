@@ -3,6 +3,7 @@ import '../models/beacon.dart';
 import './positioning.dart';
 import './vector2d.dart';
 import './unit_converter.dart';
+import '../ble_scanner_service.dart';
 
 class SmoothedPositionTracker {
   // Configuration properties
@@ -25,9 +26,13 @@ class SmoothedPositionTracker {
   Stream<Vector2D> get positionStream => _positionController.stream;
   Vector2D get position => _currentPosition;
 
+  // BLEScannerService instance
+  final BLEScannerService bleScanner;
+
   SmoothedPositionTracker({
     this.alpha = 0.95,
     this.intervalMs = 500,
+    required this.bleScanner,
   });
 
   void start() {
@@ -59,7 +64,6 @@ class SmoothedPositionTracker {
     // Use a safe default position if we can't calculate one
     Vector2D newPos = _lastPosition;
     final now = DateTime.now();
-    final bleScanner = BLEScannerService();
 
     // Only consider beacons with valid RSSI, position, and recent lastSeen
     final connected = _beacons.where((b) =>

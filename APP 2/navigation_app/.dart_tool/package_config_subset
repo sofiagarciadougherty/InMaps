@@ -94,6 +94,10 @@ meta
 2.12
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/meta-1.16.0/
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/meta-1.16.0/lib/
+nested
+2.12
+file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/nested-1.0.0/
+file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/nested-1.0.0/lib/
 path
 3.4
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/path-1.9.1/
@@ -158,6 +162,10 @@ protobuf
 2.12
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/protobuf-2.1.0/
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/protobuf-2.1.0/lib/
+provider
+2.12
+file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/provider-6.1.4/
+file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/provider-6.1.4/lib/
 reactive_ble_mobile
 2.12
 file:///C:/Users/derek/AppData/Local/Pub/Cache/hosted/pub.dev/reactive_ble_mobile-5.4.0/

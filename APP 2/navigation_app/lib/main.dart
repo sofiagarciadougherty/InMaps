@@ -6,7 +6,6 @@ import './BeaconProvider.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
-import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:io' show Platform;
 import 'package:permission_handler/permission_handler.dart';
 // carlota
@@ -16,7 +15,6 @@ import './map_screen.dart';
 import './models/beacon.dart';
 import './utils/positioning.dart';
 import './utils/smoothed_position.dart';
-import './utils/fused_position.dart';
 import './utils/vector2d.dart';
 import './utils/unit_converter.dart';
 import './ble_scanner_service.dart';  // Added missing import
@@ -75,7 +73,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   List<List<dynamic>> currentPath = [];
 
   // Backend URL
-  final String backendUrl = 'http://10.0.2.2:8000';
+  final String backendUrl = 'http://127.0.0.1:8000';
 
   // Configuration from backend
   Map<String, dynamic> configData = {};
@@ -87,24 +85,17 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   // Calibration variables
   int txPower = -59; // Default reference power at 1m
 
-  // New positioning system with smoothing and fusion
+  // New positioning system with smoothing (BLE only)
   List<Beacon> beaconList = [];
   late SmoothedPositionTracker blePositionTracker;
-  late FusedPositionTracker positionTracker;
   Vector2D currentPosition = const Vector2D(0, 0);
 
   // Path request throttling
   DateTime _lastPathRequest = DateTime.now();
   static const Duration _pathRequestThreshold = Duration(milliseconds: 1000);
 
-  // Movement detection
-  bool _isMoving = false;
-  Vector2D _lastSignificantPosition = const Vector2D(0, 0);
-  static const double _movementThreshold = 15.0; // pixels
-
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
-  StreamSubscription<Vector2D>? _positionSubscription;
 
   // Simulation mode
   bool simulateBeacons = false;
@@ -153,8 +144,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       });
       // Update the SmoothedPositionTracker directly
       blePositionTracker.updateBeacons(beacons);
-      // Optionally still update the fused tracker if needed elsewhere
-      // positionTracker.updateBeacons(beacons);
     });
   }
 
@@ -171,20 +160,15 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     });
 
     // Initialize BLE position tracker
-    blePositionTracker = SmoothedPositionTracker(alpha: 0.8, intervalMs: 800);
-    blePositionTracker.start(); // <-- Ensure the tracker is running
-
-    // Initialize fused position tracker with BLE base
-    positionTracker = FusedPositionTracker(
-      bleScanner: BLEScannerService(),
-      initialPosition: const Vector2D(0, 0),
-      useSimulators: false,
-      updateIntervalMs: 100,
-      debugMode: true,
+    final bleScanner = BLEScannerService();
+    blePositionTracker = SmoothedPositionTracker(
+      alpha: 0.8,
+      intervalMs: 800,
+      bleScanner: bleScanner,
     );
+    blePositionTracker.start();
 
     // Configure the BLE scanner service with the MAC mappings
-    final bleScanner = BLEScannerService();
     bleScanner.configure(
       macToIdMap: mac_to_id_map,
       beaconPositions: beaconIdToPosition,
@@ -193,44 +177,33 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     // Subscribe to BLEScannerService RSSI stream and update beacon state/trackers
     final beaconProvider = Provider.of<BeaconProvider>(context, listen: false);
     bleScanner.rssiStream.listen((rssiMap) {
-      final beacons = rssiMap.entries.map((entry) {
-        final id = entry.key;
-        final rssi = entry.value;
-        final pos = bleScanner.beaconIdToPosition[id];
-        return Beacon(
-          id: id,
-          name: id,
-          rssi: rssi,
-          baseRssi: txPower,
-          position: Vector2D(pos[0].toDouble(), pos[1].toDouble()),
-        );
-      }).toList();
+      final beacons = rssiMap.entries
+        .where((entry) => bleScanner.beaconIdToPosition[entry.key] != null)
+        .map((entry) {
+          final id = entry.key;
+          final rssi = entry.value;
+          final pos = bleScanner.beaconIdToPosition[id]!;
+          return Beacon(
+            id: id,
+            name: id,
+            rssi: rssi,
+            baseRssi: txPower,
+            position: Vector2D(pos[0].toDouble(), pos[1].toDouble()),
+          );
+        }).toList();
 
       // Update global beacon state
       beaconProvider.updateBeacons(beacons);
 
-      // Feed to position trackers
+      // Feed to BLE position tracker only
       blePositionTracker.updateBeacons(beacons);
-      positionTracker.updateBeacons(beacons);
     });
 
-    // Subscribe to position updates
-    _positionSubscription = positionTracker.positionStream.listen((position) {
-      // Check if significant movement has occurred
-      final distanceMoved = Vector2D.distance(position, _lastSignificantPosition);
-      final isSignificantMovement = distanceMoved > _movementThreshold;
-
+    // Subscribe to BLE position updates
+    blePositionTracker.positionStream.listen((position) {
       setState(() {
         currentPosition = position;
         userLocation = converter.formatPositionForDisplay(position);
-
-        // Update movement status for UI feedback
-        if (isSignificantMovement) {
-          _isMoving = true;
-          _lastSignificantPosition = position;
-        } else {
-          _isMoving = false;
-        }
       });
 
       // Request path automatically when location updates and booth is selected
@@ -247,10 +220,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       fetchBoothNames();
     });
 
-    // Start position tracking
-    positionTracker.start();
-
-    _startScanning(); // Start scanning on launch
     _periodicRestartTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       _restartScanning();
     });
@@ -260,8 +229,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   void dispose() {
     _periodicRestartTimer?.cancel();
     _scanSubscription?.cancel();
-    _positionSubscription?.cancel();
-    positionTracker.dispose();
     stopBeaconSimulation();
     super.dispose();
   }
@@ -279,59 +246,46 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       final response = await http.get(Uri.parse('$backendUrl/config'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final positions = data['beaconPositions'] as Map<String, dynamic>;
+        final gridCellSize = data['gridCellSize'] ?? 50;
         setState(() {
           configData = data;
-
-          // Parse beacon positions
-          final positions = data['beaconPositions'] as Map<String, dynamic>;
-          final gridCellSize = data['gridCellSize'] ?? 50;
+          // Map each beacon ID to its position in pixels by multiplying grid coordinates by gridCellSize
           beaconIdToPosition = positions.map((key, value) => MapEntry(key, [
-                ((value['x'] as num).toInt() * gridCellSize).toInt(),
-                ((value['y'] as num).toInt() * gridCellSize).toInt()
-              ]));
-
+            ((value['x'] as num).toInt() * gridCellSize).toInt(),
+            ((value['y'] as num).toInt() * gridCellSize).toInt()
+          ]));
           // Parse beacon ID mapping
           beacon_mac_map = Map<String, String>.from(data['beaconIdMapping']);
           mac_to_id_map = {};
           beacon_mac_map.forEach((id, mac) {
             mac_to_id_map[mac] = id;
           });
-
           // Configure the BLEScannerService with updated mappings from backend
           final bleScanner = BLEScannerService();
           bleScanner.configure(
             macToIdMap: mac_to_id_map,
             beaconPositions: beaconIdToPosition,
           );
-
           // Parse scale factors and calibration values
           final pixelsPerGridCell = (data['gridCellSize'] ?? 50).toDouble();
-          final metersToGridFactor =
-              (data['metersToGridFactor'] ?? 2.0).toDouble();
+          final metersToGridFactor = (data['metersToGridFactor'] ?? 2.0).toDouble();
           txPower = data['txPower'] ?? -59;
-
           // Configure the central unit converter
           converter.configure(
             pixelsPerGridCell: pixelsPerGridCell,
             metersToGridFactor: metersToGridFactor,
           );
-
           isConfigLoaded = true;
           debugPrint("✅ Configuration loaded from backend");
-          debugPrint(
-              "📏 Meters to Grid Factor: ${converter.metersToGridFactor}");
-
-          // Update calibration in the position tracker
-          positionTracker.updateCalibration(converter.metersToGridFactor);
+          debugPrint("📏 Meters to Grid Factor: "+converter.metersToGridFactor.toString());
         });
       } else {
-        debugPrint("❌ Failed to load configuration: ${response.statusCode}");
-        // Fall back to hardcoded values
+        debugPrint("❌ Failed to load configuration: "+response.statusCode.toString());
         _initializeDefaultConfig();
       }
     } catch (e) {
       debugPrint("❌ Error loading configuration: $e");
-      // Fall back to hardcoded values
       _initializeDefaultConfig();
     }
   }
@@ -390,9 +344,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
       isConfigLoaded = true;
       debugPrint("⚠️ Using default configuration");
-
-      // Update calibration in the position tracker
-      positionTracker.updateCalibration(converter.metersToGridFactor);
     });
   }
 
@@ -433,12 +384,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Open Map Screen -------------------
   void openMapScreen() async {
-    if (userLocation.isEmpty || selectedBooth.isEmpty) return;
-
     // Convert the current position to grid coordinates
     final gridCoords = converter.positionToGridCoords(currentPosition);
-
-    final heading = await FlutterCompass.events!.first;
 
     Navigator.push(
       context,
@@ -446,7 +393,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         builder: (_) => MapScreen(
           path: currentPath,
           startLocation: gridCoords,
-          headingDegrees: heading.heading ?? 0.0,
+          headingDegrees: 0.0, // No compass, set to 0
           initialPosition: currentPosition,
           positionStream: blePositionTracker.positionStream,
           backendUrl: backendUrl, // Pass backendUrl here
@@ -478,10 +425,49 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.locationWhenInUse,
-      Permission.location,
     ].request();
+
+    // If any permission is permanently denied, prompt user to open settings
+    if (statuses.values.any((status) => status.isPermanentlyDenied)) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Permissions Required'),
+            content: const Text('Please enable Bluetooth and Location permissions in app settings.'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  openAppSettings();
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+      }
+      return false;
+    }
+
     // All must be granted
-    return statuses.values.every((status) => status.isGranted);
+    final allGranted = statuses.values.every((status) => status.isGranted);
+    if (!allGranted && mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Permissions Denied'),
+          content: const Text('Bluetooth and Location permissions are required for scanning.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+    return allGranted;
   }
 
   // ------------------- UI Build -------------------
@@ -571,28 +557,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'Current Position:',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 8),
-                      // Show movement indicator
-                      if (_isMoving)
-                        Container(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'Moving',
-                            style: TextStyle(fontSize: 10, color: Colors.white),
-                          ),
-                        ),
-                    ],
+                  const Text(
+                    'Current Position:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -728,41 +695,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   ],
                 ),
               ),
-
-            // Movement Debugging Panel
-            Container(
-              margin: const EdgeInsets.only(top: 10),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.amber[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber[200]!),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Hybrid Positioning System:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text('Status: ${_isMoving ? "Moving" : "Stationary"}'),
-                  Text(
-                      'Positioning Mode: ${_isMoving ? "BLE+IMU Fusion" : "BLE Multilateration"}'),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        // Start scanning for BLE devices
-                        _startScanning();
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: kTealColor),
-                    child: const Text('Refresh Beacons'),
-                  ),
-                ],
-              ),
-            ),
 
             // 7) Game Mode (Navigate to GameScreen)
             SizedBox(
