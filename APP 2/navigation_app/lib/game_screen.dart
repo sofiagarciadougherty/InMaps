@@ -26,7 +26,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- BLE & Positioning ----------------
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
-  static const int gridCellSize = 40;
 
   /// Mapping of known beacon IDs to their [x, y] positions.
   final Map<String, List<int>> beaconIdToPosition = {
@@ -258,7 +257,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- Navigate to Map Screen for the Selected Task ----------------
   Future<void> _navigateToTask(Map<String, dynamic> task) async {
     if (userLocation.isEmpty) return;
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
+    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 50).toList();
     final heading = await FlutterCompass.events!.first;
     final headingDegrees = heading.heading ?? 0.0;
     try {
@@ -285,8 +284,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               startLocation: start,
               headingDegrees: headingDegrees,
               initialPosition: Vector2D(
-                start[0] * gridCellSize.toDouble(),
-                start[1] * gridCellSize.toDouble(),
+                start[0] * 50.0,
+                start[1] * 50.0,
               ),
               selectedBoothName: task["name"],
               onArrival: (arrived) {

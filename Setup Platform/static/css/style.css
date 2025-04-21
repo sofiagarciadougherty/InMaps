@@ -1,0 +1,441 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    margin: 0;
+    padding: 20px;
+}
+.container {
+    max-width: 1000px;
+    margin: auto;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+h1, h2 {
+    text-align: center;
+    color: #333;
+}
+h1 {
+    margin-bottom: 10px;
+}
+h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #666;
+}
+#drawingCanvas {
+    display: block;
+    margin: 20px auto;
+    border: 1px solid #ccc;
+    max-width: 100%;
+    height: auto;
+}
+#controls {
+    text-align: center;
+    margin-bottom: 20px;
+    width: 100%;
+}
+#controls button {
+    margin: 5px;
+    padding: 8px 16px;
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+#controls button:hover {
+    background-color: #e0e0e0;
+}
+#togglePOI {
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+}
+#togglePOI.active {
+    background-color: #4CAF50;
+    color: white;
+    border-color: #45a049;
+}
+#togglePOI:hover {
+    background-color: #e0e0e0;
+}
+#togglePOI.active:hover {
+    background-color: #45a049;
+}
+#boothTable, #poiTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    table-layout: fixed;
+}
+#boothTable th, #boothTable td, #poiTable th, #poiTable td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: center;
+    width: 25%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 0;
+}
+#boothTable .name-input, #poiTable .name-input {
+    width: 100%;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+    max-width: 100%;
+}
+#boothTable .name-input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+#output {
+    margin-top: 20px;
+    text-align: center;
+    width: 100%;
+}
+#downloadLink, #csvDownloadLink {
+    display: block;
+    margin: 10px 0;
+    padding: 8px 16px;
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #333;
+    text-decoration: none;
+    cursor: pointer;
+}
+#downloadLink:hover, #csvDownloadLink:hover {
+    background-color: #e0e0e0;
+}
+#poiCount {
+    text-align: center;
+    font-weight: normal;
+    margin: 10px 0;
+}
+.input-group {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 10px 0;
+}
+.input-group label {
+    margin-right: 5px;
+}
+#floorplanTitle {
+    margin-left: 5px;
+}
+.input-group input {
+    padding: 5px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 200px;
+}
+
+#controls p {
+    margin-top: 5px;
+}
+
+.download-section {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.download-buttons-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    margin: 20px 0;
+    flex-wrap: nowrap;
+}
+
+.download-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #333;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    min-width: 250px;
+    height: 40px;
+    box-sizing: border-box;
+    font-size: 14px;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.download-button:hover {
+    background-color: #e0e0e0;
+}
+
+.zip-button {
+    margin: 20px auto;
+    width: fit-content;
+}
+
+#downloadLink, #csvDownloadLink, #reportDownloadLink {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+#saveButton {
+    display: block;
+    margin: 0 auto 20px;
+    padding: 8px 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+#saveButton:hover {
+    background-color: #45a049;
+}
+
+.input-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.input-table {
+    width: 100%;
+    border-spacing: 0 15px;
+}
+
+.label-cell {
+    width: 40%;
+    text-align: right;
+    padding-right: 20px;
+    vertical-align: middle;
+    color: #444;
+    font-weight: 500;
+}
+
+.input-cell {
+    width: 60%;
+    vertical-align: middle;
+}
+
+.input-cell input[type="text"],
+.input-cell input[type="number"],
+.input-cell select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.input-cell input[type="file"] {
+    width: 100%;
+    padding: 8px 0;
+}
+
+.input-cell select {
+    background-color: white;
+    cursor: pointer;
+}
+
+.button-cell {
+    text-align: center;
+    padding-top: 20px;
+}
+
+.start-button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px 30px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s;
+}
+
+.start-button:hover {
+    background-color: #45a049;
+}
+
+.logo-container {
+    text-align: center;
+    margin-bottom: 0;
+    padding: 0;
+}
+
+.logo {
+    max-width: 250px;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}
+
+.table-title {
+    text-align: center;
+    color: #666;
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.count-text {
+    text-align: center;
+    color: #333;
+    margin: 10px 0;
+    font-weight: normal;
+}
+
+.type-select {
+    width: 100%;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    background-color: white;
+    cursor: pointer;
+}
+
+.type-select:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+
+#boothTable .name-input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+
+#poiTable {
+    margin-bottom: 40px;
+}
+
+.mode-select {
+    padding: 8px 16px;
+    margin: 5px;
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+}
+
+.mode-select:hover {
+    background-color: #e0e0e0;
+}
+
+.mode-select:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+
+/* Modal Dialog Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+    background-color: #fff;
+    margin: 15% auto;
+    padding: 20px;
+    border-radius: 8px;
+    width: 300px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #333;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #666;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.modal-buttons button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+}
+
+#confirmUniform {
+    background-color: #4CAF50;
+    color: white;
+}
+
+#confirmUniform:hover {
+    background-color: #45a049;
+}
+
+#cancelUniform {
+    background-color: #f4f4f4;
+    color: #333;
+}
+
+#cancelUniform:hover {
+    background-color: #e0e0e0;
+}

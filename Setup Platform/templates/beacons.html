@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>InMaps - Beacon Placement</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>InMaps</h1>
+        <h2>Optimal Beacon Placement</h2>
+        <img src="{{ beacon_image }}" alt="Beacon Placement" style="max-width: 100%; border: 1px solid #ccc;">
+        <p>Total number of beacons: {{ beacon_info.count }}</p>
+        <h3>Sample Beacon Positions (first 10):</h3>
+        <ul>
+        {% for pos in beacon_info.positions %}
+            <li>{{ pos }}</li>
+        {% endfor %}
+        </ul>
+        <a href="{{ beacon_image }}" download="beacon_placement.png">Download Beacon Placement Image</a>
+    </div>
+</body>
+</html>

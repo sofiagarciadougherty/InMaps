@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>InMaps - Floorplan Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=range(100000)|random) }}">
+</head>
+<body>
+    <div class="container">
+        <h1>InMaps</h1>
+        <h2>Floorplan Evaluation</h2>
+        <div id="controls">
+            <div class="input-group">
+                <label for="floorplanTitle">Event:</label> <span id="floorplanTitle"></span>
+            </div>
+            <p>
+                Floor Dimensions: {{ floor_width }} m x {{ floor_height }} m<br>
+                {% if mode == "uniform" %}
+                Booth Table Dimensions: {{ booth_width }} m x {{ booth_height }} m<br>
+                {% endif %}
+            </p>
+            <select id="drawingModeSelect" class="mode-select">
+                <option value="rectangle">Rectangle Mode</option>
+                <option value="arbitrary">Arbitrary Mode</option>
+                <option value="uniform">Uniform Mode</option>
+            </select>
+            <button id="finishBtn">Finish Drawing</button>
+            <button id="clearBtn">Clear Drawings</button>
+            <button id="togglePOI">Add Beacons</button>
+        </div>
+        <canvas id="drawingCanvas"></canvas>
+        <div id="output">
+            <h2 class="table-title">POI Records</h2>
+            <p id="boothCount" class="count-text">Total POI: 0</p>
+            <table id="boothTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Type</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Coordinates</th>
+                        <th>Center Coordinates</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <h3 class="table-title">Beacon Records</h3>
+            <p id="poiCount" class="count-text">Total Beacons: 0</p>
+            <table id="poiTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Type</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Coordinates</th>
+                        <th>Center Coordinates</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div class="download-section">
+                <button id="saveButton" class="btn btn-primary">Save Inputs</button>
+                <div class="download-buttons-row">
+                    <a id="downloadLink" class="download-button" href="#" download="annotated_floorplan.png">Download Annotated Floorplan</a>
+                    <a id="csvDownloadLink" class="download-button" href="#" download="poi_coordinates.csv">Download POI Coordinates CSV</a>
+                    <a id="reportDownloadLink" class="download-button" href="#" download="floorplan_report.pdf">Download Floorplan Report</a>
+                </div>
+                <a id="zipDownloadLink" class="download-button zip-button" href="#" download="floorplan_package.zip">Download All Files (ZIP)</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add the uniform mode dialog -->
+    <div id="uniformModeDialog" class="modal">
+        <div class="modal-content">
+            <h3>Uniform Mode Dimensions</h3>
+            <div class="modal-form">
+                <div class="form-group">
+                    <label for="uniformWidth">Width (meters):</label>
+                    <input type="number" id="uniformWidth" min="0.1" step="0.1" required>
+                </div>
+                <div class="form-group">
+                    <label for="uniformHeight">Height (meters):</label>
+                    <input type="number" id="uniformHeight" min="0.1" step="0.1" required>
+                </div>
+                <div class="modal-buttons">
+                    <button id="confirmUniform">Confirm</button>
+                    <button id="cancelUniform">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add the booth/beacon details dialog -->
+    <div id="detailsDialog" class="modal">
+        <div class="modal-content">
+            <h3 id="detailsDialogTitle">Booth Details</h3>
+            <div class="modal-form">
+                <div class="form-group">
+                    <label for="elementType">Type:</label>
+                    <select id="elementType" class="type-select">
+                        <option value="Booth">Booth</option>
+                        <option value="Beacon">Beacon</option>
+                        <option value="Zone">Zone</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="elementName">Name:</label>
+                    <input type="text" id="elementName" placeholder="Enter name">
+                </div>
+                <div class="form-group">
+                    <label for="elementDescription">Description:</label>
+                    <input type="text" id="elementDescription" placeholder="Enter description">
+                </div>
+                <div class="modal-buttons">
+                    <button id="saveDetails">Save</button>
+                    <button id="skipDetails">Skip</button>
+                    <button id="cancelDetails">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Pass parameters from Flask to JavaScript
+        const floorWidth = parseFloat("{{ floor_width }}");
+        const floorHeight = parseFloat("{{ floor_height }}");
+        const drawingMode = "{{ mode }}";
+        const boothWidth = parseFloat("{{ booth_width if booth_width is defined else '' }}");
+        const boothHeight = parseFloat("{{ booth_height if booth_height is defined else '' }}");
+        const imageUrl = "{{ image_url }}";
+        const floorplanTitle = "{{ floorplan_title }}";
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="{{ url_for('static', filename='js/draw.js', v=range(100000)|random) }}"></script>
+</body>
+</html>

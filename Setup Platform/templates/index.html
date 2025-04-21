@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>InMaps - Floorplan Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=range(100000)|random) }}">
+</head>
+<body>
+    <div class="container">
+        <div class="logo-container">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="InMaps" class="logo">
+        </div>
+        <h2>Floorplan Evaluation</h2>
+        <form action="/" method="post" enctype="multipart/form-data" class="input-form">
+            <table class="input-table">
+                <tr>
+                    <td class="label-cell"><label for="floorplanTitle">Event:</label></td>
+                    <td class="input-cell"><input type="text" name="floorplanTitle" id="floorplanTitle" placeholder="Enter event name"></td>
+                </tr>
+                <tr>
+                    <td class="label-cell"><label for="floor_width">Floorplan Width (m):</label></td>
+                    <td class="input-cell"><input type="number" step="any" name="floor_width" id="floor_width" required></td>
+                </tr>
+                <tr>
+                    <td class="label-cell"><label for="floor_height">Floorplan Height (m):</label></td>
+                    <td class="input-cell"><input type="number" step="any" name="floor_height" id="floor_height" required></td>
+                </tr>
+                <tr>
+                    <td class="label-cell"><label for="mode">Drawing Mode:</label></td>
+                    <td class="input-cell">
+                        <select name="mode" id="mode" required onchange="toggleUniformFields()">
+                            <option value="rectangle">90° Oriented (Non-uniform)</option>
+                            <option value="uniform">90° Oriented (Uniform Booths)</option>
+                            <option value="arbitrary">Angled Booths (Arbitrary)</option>
+                        </select>
+                    </td>
+                </tr>
+                <tr id="uniformFields" style="display: none;">
+                    <td class="label-cell">
+                        <label for="booth_width">Booth Table Width (m):</label><br>
+                        <label for="booth_height">Booth Table Height (m):</label>
+                    </td>
+                    <td class="input-cell">
+                        <input type="number" step="any" name="booth_width" id="booth_width"><br>
+                        <input type="number" step="any" name="booth_height" id="booth_height">
+                    </td>
+                </tr>
+                <tr>
+                    <td class="label-cell"><label for="floorplan_image">Upload Floorplan Image:</label></td>
+                    <td class="input-cell"><input type="file" name="floorplan_image" id="floorplan_image" accept="image/*" required></td>
+                </tr>
+                <tr>
+                    <td colspan="2" class="button-cell">
+                        <button type="submit" class="start-button">Start Drawing</button>
+                    </td>
+                </tr>
+            </table>
+        </form>
+    </div>
+    <script>
+        function toggleUniformFields() {
+            var modeSelect = document.getElementById("mode");
+            var uniformFields = document.getElementById("uniformFields");
+            if (modeSelect.value === "uniform") {
+                uniformFields.style.display = "table-row";
+            } else {
+                uniformFields.style.display = "none";
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+
