@@ -155,3 +155,4 @@
 154,Zone,Blue Zone,No Description,"{start:{x:265,y:159},end:{x:403,y:193}}","(334, 176)"
 155,Zone,Green Zone,No Description,"{start:{x:328,y:241},end:{x:233,y:417}}","(281, 329)"
 156,Zone,Red Zone,No Description,"{start:{x:362,y:692},end:{x:347,y:801}}","(355, 747)"
+157,Zone,Walkable,No Description,"{start:{x:350,y:109},end:{x:262,y:158}}","(306, 134)"
