@@ -8,6 +8,7 @@ import numpy as np
 import json
 import ast
 import math
+import re
 
 app = FastAPI()
 
@@ -28,36 +29,46 @@ def load_booth_data(csv_path):
         if not isinstance(coord_cell, str):
             print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
             continue
+
+        # 1) Quote unquoted keys so it's valid JSON
         try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
+            coord_str = re.sub(
+                r'([{,]\s*)(\w+)\s*:',
+                r'\1"\2":',
+                coord_cell
+            )
+            coords = json.loads(coord_str)
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
             print(f"⚠️ Skipping row — JSON parsing failed: {e}")
             continue
 
-        if "blocker" in row["Name"].lower():
+        # 2) Determine type
+        name = row["Name"].strip()
+        if "blocker" in name.lower():
             booth_type = "blocker"
-        elif "booth" in row["Name"].lower():
+        elif "booth" in name.lower():
             booth_type = "booth"
         else:
-            booth_type = "other"  # default/fallback for stuff like bathroom
+            booth_type = "other"
 
-        name = row["Name"].strip()
+        # 3) Pull out description
+        description = str(row["Description"]).strip()
 
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
         booths.append({
-            "booth_id": int(row["Booth ID"]),
+            "booth_id": int(row["ID"]),         # was row["Booth ID"]
             "name": name,
-            "description": description,
+            "description": description,         # now defined
             "type": booth_type,
             "area": {
                 "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
-                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
+                "end":   {"x": coords["end"]["x"],   "y": coords["end"]["y"]},
             },
             "center": {"x": center[0], "y": center[1]}
-
         })
+
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
@@ -72,7 +83,8 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
         if not isinstance(coord_cell, str):
             continue
         try:
-            coords = json.loads(coord_cell.replace('\"', '"'))
+            coord_str = re.sub(r'([{,]\s*)(\w+)\s*:', r'\1"\2":', coord_cell)
+            coords    = json.loads(coord_str)
         except Exception:
             continue
 
