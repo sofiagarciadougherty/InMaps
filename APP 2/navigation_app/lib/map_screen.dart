@@ -510,8 +510,9 @@ class MapPainter extends CustomPainter {
     canvas.translate(-userCenter.dx, -userCenter.dy);
 
     final paintBooth = Paint()..color = const Color(0xFF008C9E).withOpacity(0.15);
-    final paintBlocker = Paint()..color = Colors.red.withOpacity(0.2);
-    final paintOther = Paint()..color = Colors.blueGrey.withOpacity(0.1);
+    final paintStairs = Paint()..color = Colors.red.withOpacity(0.2);
+    final paintWalkable = Paint()..color = Colors.grey.withOpacity(0.1);
+    final paintYellowZone = Paint()..color = Colors.yellow.withOpacity(0.15);
     final paintPathGlow = Paint()
       ..color = const Color(0xFF008C9E).withOpacity(0.3)
       ..strokeWidth = 6.0
@@ -523,56 +524,44 @@ class MapPainter extends CustomPainter {
     final paintUserBorder = Paint()..color = Colors.white;
     final paintUser = Paint()..color = const Color(0xFF008C9E);
 
-    // Draw shadows
+    // Draw walkable areas first (as shadows)
     for (var el in elements) {
       final type = (el["type"] as String).toLowerCase();
-      if (type == "zone"){
-        continue;
-      }
-      if (type == "booth") {
+      if (type == "walkable") {
         final start = el["start"];
         final end = el["end"];
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromPoints(Offset(start["x"].toDouble(), start["y"].toDouble()), Offset(end["x"].toDouble(), end["y"].toDouble())).translate(2,2),
+            Rect.fromPoints(
+              Offset(start["x"].toDouble(), start["y"].toDouble()),
+              Offset(end["x"].toDouble(), end["y"].toDouble())
+            ),
             const Radius.circular(12),
           ),
-          Paint()..color = Colors.black.withOpacity(0.1)..maskFilter = const MaskFilter.blur(BlurStyle.normal,4),
+          paintWalkable,
         );
       }
     }
+
     // Draw elements
     for (var el in elements) {
       final type = (el["type"] as String).toLowerCase();
-
-      // Skip zones completely
-      if (type == "zone" || type == "beacon") continue;
-
       final start = el["start"];
       final end = el["end"];
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
 
-      // Draw shadows only for booths
-      if (type == "booth") {
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromPoints(startOffset, endOffset).translate(2,2),
-            const Radius.circular(12),
-          ),
-          Paint()..color = Colors.black.withOpacity(0.1)..maskFilter = const MaskFilter.blur(BlurStyle.normal,4),
-        );
-      }
-
       Paint paint;
-      if (type == "blocker") {
-        paint = paintBlocker;
+      if (type == "stairs") {
+        paint = paintStairs;
       } else if (type == "booth") {
         paint = Paint()..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [const Color(0xFF008C9E).withOpacity(0.2), const Color(0xFF008C9E).withOpacity(0.3)],
         ).createShader(Rect.fromPoints(startOffset, endOffset));
+      } else if (type == "yellow_zone") {
+        paint = paintYellowZone;
       } else {
         continue;
       }

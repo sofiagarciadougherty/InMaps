@@ -52,7 +52,9 @@ def load_booth_data(csv_path):
         elif "booth" in type.lower():
             booth_type = "booth"
         elif "zone" in type.lower():
-                    booth_type = "Zone"
+            booth_type = "Zone"
+        elif "stairs" in type.lower():
+             booth_type = "stairs"
         else:
             booth_type = "other"
             
