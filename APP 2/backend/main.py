@@ -17,7 +17,7 @@ CSV_PATH = "booth_coordinates.csv"
 # Add calibration constants
 CELL_SIZE = 40  # pixels per grid cell
 # Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
+METERS_TO_GRID_FACTOR = 40  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
@@ -65,17 +65,17 @@ def load_booth_data(csv_path):
             "type": booth_type,
             "area": {
                 "start": {
-                    "x": int(coords["start"]["x"] * METERS_TO_GRID_FACTOR),
-                    "y": int(coords["start"]["y"] * METERS_TO_GRID_FACTOR)
+                    "x": int(coords["start"]["x"] / METERS_TO_GRID_FACTOR),
+                    "y": int(coords["start"]["y"] / METERS_TO_GRID_FACTOR)
                 },
                 "end": {
-                    "x": int(coords["end"]["x"] * METERS_TO_GRID_FACTOR),
-                    "y": int(coords["end"]["y"] * METERS_TO_GRID_FACTOR)
+                    "x": int(coords["end"]["x"] / METERS_TO_GRID_FACTOR),
+                    "y": int(coords["end"]["y"] / METERS_TO_GRID_FACTOR)
                 },
             },
             "center": {
-                "x": int(center[0] * METERS_TO_GRID_FACTOR),
-                "y": int(center[1] * METERS_TO_GRID_FACTOR)
+                "x": int(center[0] / METERS_TO_GRID_FACTOR),
+                "y": int(center[1] / METERS_TO_GRID_FACTOR)
             }
         })
 
