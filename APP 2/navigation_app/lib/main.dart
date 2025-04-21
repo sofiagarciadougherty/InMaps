@@ -295,8 +295,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       withServices: [],
       scanMode: ScanMode.lowLatency,
     ).listen((device) {
-      // Debug information
-      debugPrint("Found device: ${device.name}, ID: ${device.id}");
 
       String? beaconId;
 
