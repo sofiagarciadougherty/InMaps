@@ -22,7 +22,7 @@ CELL_SIZE = 40  # pixels per grid cell
 METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
-    df = pd.read_csv(csv_path, encoding_errors='replace')
+    df = pd.read_csv(csv_path, encoding_errors='replace',on_bad_lines="skip")
     booths = []
     print("📦 Loading booths from CSV...")
 
