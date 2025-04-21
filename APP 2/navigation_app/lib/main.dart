@@ -86,6 +86,7 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   @override
   void initState() {
     super.initState();
+  
     _selectedEvent = _events.isNotEmpty ? _events[0] : "";
     flutterReactiveBle.statusStream.listen((status) {
       debugPrint("Bluetooth status: $status");
