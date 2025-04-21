@@ -339,17 +339,15 @@ class MapPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     for (var el in elements) {
-      // Skip elements with type "beacon" - improved filtering
-      final elementType = el["type"].toString().toLowerCase();
-      if (elementType.contains("beacon")) {
-        print("Skipping beacon element: ${el["name"]}");
+      // Skip elements with type "beacon"
+      if (el["type"].toString().toLowerCase() == "beacon") {
         continue;
       }
       
       final start = el["start"];
       final end = el["end"];
       final name = el["name"];
-      final type = elementType;
+      final type = el["type"].toString().toLowerCase();
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
       final center = Offset(

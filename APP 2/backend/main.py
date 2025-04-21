@@ -51,6 +51,9 @@ def load_booth_data(csv_path):
             booth_type = "booth"
         else:
             booth_type = "other"
+            
+        # Get the name from the row
+        name = str(row["Name"]).strip()
 
         # 3) Pull out description
         description = str(row["Description"]).strip()
