@@ -412,51 +412,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   Positioned.fill(
                     child: GestureDetector(
                       onTapDown: (details) {
-                        // 1) Convert the screen coordinate into the map's coordinate system:
-                        final box = context.findRenderObject() as RenderBox;
-                        final localPos = box.globalToLocal(details.globalPosition);
-                        final invMatrix = Matrix4.inverted(_transformationController.value);
-                        final v = invMatrix.transform3(Vector3(localPos.dx, localPos.dy, 0));
-
-                        final tapPoint = Offset(v.x, v.y);
-                        print("🎯 Tap at: (${tapPoint.dx}, ${tapPoint.dy})"); // Debug print
-
-                        // 2) Check each booth's center with a very small radius
-                        const tapRadius = 5.0; // Much smaller radius for more precise tapping
-                        dynamic closestBooth;
-                        double minDistance = double.infinity;
+                        final localPos = details.localPosition;  // ← raw local screen position
 
                         for (var el in elements) {
-                          final type = (el['type'] as String).toLowerCase();
-                          if (type == 'zone' || type == 'beacon') continue;
+                          if (el["type"].toString().toLowerCase() != "booth") continue;
 
-                          final start = el['start'];
-                          final end   = el['end'];
-                          final center = Offset(
-                              (start['x'].toDouble() + end['x'].toDouble())/2,
-                              (start['y'].toDouble() + end['y'].toDouble())/2
-                          );
+                          final start = el["start"];
+                          final end = el["end"];
+                          final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                          final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                          final boothRect = Rect.fromPoints(startOffset, endOffset);
 
-                          print("📍 Booth ${el['name']} center: (${center.dx}, ${center.dy})"); // Debug print
-
-                          final distance = (tapPoint - center).distance;
-                          print("📏 Distance to ${el['name']}: $distance"); // Debug print
-
-                          if (distance < minDistance) {
-                            minDistance = distance;
-                            closestBooth = el;
+                          if (boothRect.contains(localPos)) {
+                            print("🎯 Correct booth tapped: ${el['name']}");
+                            _showBoothDescription(el);
+                            return;
                           }
                         }
 
-                        // Only trigger if we're very close to a booth
-                        if (minDistance < tapRadius && closestBooth != null) {
-                          print("✅ Selected booth: ${closestBooth['name']} at distance $minDistance"); // Debug print
-                          _showBoothDescription(closestBooth);
-                        } else {
-                          _removeOverlay();
-                        }
+                        _removeOverlay();
                       },
-                      child: Container(color: Colors.transparent),
+                        child: Container(color: Colors.transparent),
                     ),
                   ),
                 ],
