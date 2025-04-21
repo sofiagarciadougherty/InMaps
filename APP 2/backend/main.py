@@ -247,6 +247,8 @@ def locate_user(data: BLEScan):
 
 @app.post("/path")
 def get_path(request: PathRequest):
+    if len(request.from_) != 2:
+        return JSONResponse(content={"error": "'from_' must be [x,y]"}, status_code=400)
     print("✅ /path endpoint hit:", request)
     booth_name = request.to.strip().lower()
     booth = next((b for b in booth_data if b["name"].strip().lower() == booth_name), None)
