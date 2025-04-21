@@ -109,6 +109,16 @@ def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
 
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
+WALKABLE_ZONES = []
+
+for booth in booth_data:
+    if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
+        start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
+        end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
+        WALKABLE_ZONES.append({
+            "start": start,
+            "end": end
+        })
 
 # Mapping between iOS beacon IDs and Android MAC addresses
 BEACON_MAC_MAP = {
@@ -305,7 +315,6 @@ def get_booth_by_id(booth_id: int):
 @app.get("/map-data")
 def get_map_data():
     visual_elements = []
-
     for booth in booth_data:
         visual_elements.append({
             "name": booth["name"],
@@ -313,9 +322,7 @@ def get_map_data():
             "type": booth["type"],
             "start": booth["area"]["start"],
             "end": booth["area"]["end"]
-
         })
-
     return JSONResponse(content={"elements": visual_elements})
 
 @app.get("/config")
@@ -333,39 +340,39 @@ def get_config():
 def calibrate_system(data: CalibrationRequest):
     """
     Calibrate the system based on a known physical distance between two beacons
-    
+
     This endpoint updates the METERS_TO_GRID_FACTOR based on the provided information
     """
     global METERS_TO_GRID_FACTOR
-    
+
     # Get beacon positions
     beacon1_pos = BEACON_POSITIONS.get(data.beacon1_id)
     beacon2_pos = BEACON_POSITIONS.get(data.beacon2_id)
-    
+
     if not beacon1_pos or not beacon2_pos:
         return JSONResponse(
-            content={"error": "One or both beacon IDs not found"}, 
+            content={"error": "One or both beacon IDs not found"},
             status_code=400
         )
-    
+
     # Calculate grid distance between beacons
     dx = beacon2_pos[0] - beacon1_pos[0]
     dy = beacon2_pos[1] - beacon1_pos[1]
-    grid_distance = math.sqrt(dx**2 + dy**2)
-    
+    grid_distance = math.sqrt(dx*2 + dy*2)
+
     # Ensure we have a valid physical distance
     if data.known_distance_meters <= 0:
         return JSONResponse(
-            content={"error": "Physical distance must be greater than zero"}, 
+            content={"error": "Physical distance must be greater than zero"},
             status_code=400
         )
-    
+
     # Calculate new meters-to-grid factor
     new_factor = grid_distance / data.known_distance_meters
-    
+
     # Update the global factor
     METERS_TO_GRID_FACTOR = new_factor
-    
+
     return {
         "success": True,
         "previousFactor": METERS_TO_GRID_FACTOR,
@@ -375,6 +382,17 @@ def calibrate_system(data: CalibrationRequest):
     }
 
 # ====== A* Algorithm ======
+def is_inside_walkable(x, y, walkable_zones):
+    for area in walkable_zones:
+        sx, sy = area["start"]
+        ex, ey = area["end"]
+        min_x, max_x = min(sx, ex), max(sx, ex)
+        min_y, max_y = min(sy, ey), max(sy, ey)
+        if min_x <= x <= max_x and min_y <= y <= max_y:
+            return True
+    return False
+
+
 def a_star(start, goal):
     def heuristic(a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -399,7 +417,7 @@ def a_star(start, goal):
                 # Check bounds
                 if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
                     # Check if the cell is walkable (1 = free space)
-                    if VENUE_GRID[ny][nx] == 1 and (nx, ny) not in visited:
+                    if is_inside_walkable(nx, ny, WALKABLE_ZONES) and (nx, ny) not in visited:
                         next_cost = path_cost + 1
                         estimated_total = next_cost + heuristic((nx, ny), goal)
                         heappush(open_set, (
