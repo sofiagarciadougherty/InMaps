@@ -13,6 +13,7 @@ import './utils/vector2d.dart';
 
 // Global variable to preserve total points between screen navigations.
 int globalTotalPoints = 0;
+final Set<String> completedBoothNames = {};
 
 class GameScreen extends StatefulWidget {
   const GameScreen({Key? key}) : super(key: key);
@@ -183,7 +184,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 "x": centerX,
                 "y": centerY,
                 "points": b["points"] ?? 20,
-                "completed": existingTask["completed"] ?? false, // Preserve completion status
+                "completed": completedBoothNames.contains(b["name"]), // Preserve completion status
               };
             }).where((t) => t["type"] == "booth").toList();
             isLoading = false;
@@ -218,6 +219,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           if (mounted) {
             setState(() {
               task["completed"] = true;
+              completedBoothNames.add(task["name"]);
               totalPoints += (task["points"] as int);
               // Update global points.
               globalTotalPoints = totalPoints;
@@ -415,7 +417,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               ),
                             ),
                             child: InkWell(
-                              onTap: () => _showTaskDialog(t),
+                              onTap: t["completed"] ? null : () => _showTaskDialog(t),
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
                                 padding: const EdgeInsets.all(16),
