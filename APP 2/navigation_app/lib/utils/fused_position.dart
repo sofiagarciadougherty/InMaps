@@ -266,11 +266,14 @@ class FusedPositionTracker {
   
   /// Calculate position from RSSI values using multilateration
   Vector2D? _calculatePositionFromRSSI(Map<String, int> rssiValues) {
+    final now = DateTime.now();
     // Need at least 3 beacons with known positions for triangulation
-    final usableBeacons = _knownBeacons.where((b) => 
-      b.position != null && 
-      rssiValues.containsKey(b.id)).toList();
-      
+    final usableBeacons = _knownBeacons.where((b) =>
+      b.position != null &&
+      rssiValues.containsKey(b.id) &&
+      _bleScanner.lastSeenMap[b.id] != null &&
+      now.difference(_bleScanner.lastSeenMap[b.id]!) < Duration(seconds: 10)
+    ).toList();
     if (usableBeacons.length < 3) return null;
     
     // Calculate estimated distances from RSSI values

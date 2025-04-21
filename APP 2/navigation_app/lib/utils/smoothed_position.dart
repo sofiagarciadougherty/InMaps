@@ -58,9 +58,16 @@ class SmoothedPositionTracker {
   void _updatePosition() {
     // Use a safe default position if we can't calculate one
     Vector2D newPos = _lastPosition;
+    final now = DateTime.now();
+    final bleScanner = BLEScannerService();
 
-    // Only consider beacons with valid RSSI values
-    final connected = _beacons.where((b) => b.rssi != null && b.position != null).toList();
+    // Only consider beacons with valid RSSI, position, and recent lastSeen
+    final connected = _beacons.where((b) =>
+      b.rssi != null &&
+      b.position != null &&
+      bleScanner.lastSeenMap[b.id] != null &&
+      now.difference(bleScanner.lastSeenMap[b.id]!) < Duration(seconds: 10)
+    ).toList();
 
     if (connected.isNotEmpty) {
       // Calculate pixels per meter using the converter

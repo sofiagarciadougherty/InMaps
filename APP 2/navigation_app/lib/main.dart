@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:provider/provider.dart';
+import './BeaconProvider.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
@@ -22,7 +24,12 @@ import './ble_scanner_service.dart';  // Added missing import
 // Choose a teal color for buttons.
 const Color kTealColor = Color(0xFF008C9E);
 
-void main() => runApp(NavigationApp());
+void main() => runApp(
+  ChangeNotifierProvider(
+    create: (_) => BeaconProvider(),
+    child: NavigationApp(),
+  ),
+);
 
 class NavigationApp extends StatelessWidget {
   const NavigationApp({super.key});
@@ -128,6 +135,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     ),
   ];
 
+  Timer? _periodicRestartTimer;
+
   void startBeaconSimulation() {
     simulationTimer?.cancel();
     simulationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -181,6 +190,30 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       beaconPositions: beaconIdToPosition,
     );
 
+    // Subscribe to BLEScannerService RSSI stream and update beacon state/trackers
+    final beaconProvider = Provider.of<BeaconProvider>(context, listen: false);
+    bleScanner.rssiStream.listen((rssiMap) {
+      final beacons = rssiMap.entries.map((entry) {
+        final id = entry.key;
+        final rssi = entry.value;
+        final pos = bleScanner.beaconIdToPosition[id];
+        return Beacon(
+          id: id,
+          name: id,
+          rssi: rssi,
+          baseRssi: txPower,
+          position: Vector2D(pos[0].toDouble(), pos[1].toDouble()),
+        );
+      }).toList();
+
+      // Update global beacon state
+      beaconProvider.updateBeacons(beacons);
+
+      // Feed to position trackers
+      blePositionTracker.updateBeacons(beacons);
+      positionTracker.updateBeacons(beacons);
+    });
+
     // Subscribe to position updates
     _positionSubscription = positionTracker.positionStream.listen((position) {
       // Check if significant movement has occurred
@@ -216,10 +249,16 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
     // Start position tracking
     positionTracker.start();
+
+    _startScanning(); // Start scanning on launch
+    _periodicRestartTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      _restartScanning();
+    });
   }
 
   @override
   void dispose() {
+    _periodicRestartTimer?.cancel();
     _scanSubscription?.cancel();
     _positionSubscription?.cancel();
     positionTracker.dispose();
@@ -227,35 +266,11 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     super.dispose();
   }
 
-  // Convert scanned devices to Beacon objects
-  void _updateBeaconList() {
-    final List<Beacon> updatedBeacons = [];
-
-    scannedDevices.forEach((id, rssi) {
-      if (beaconIdToPosition.containsKey(id)) {
-        final position = beaconIdToPosition[id]!;
-        updatedBeacons.add(Beacon(
-          id: id,
-          name: id,
-          rssi: rssi,
-          baseRssi: txPower,
-          position: Vector2D(position[0].toDouble(), position[1].toDouble()),
-        ));
-      }
-    });
-
-    setState(() {
-      beaconList = updatedBeacons;
-    });
-
-    // Update the position tracker with new beacon data
-    positionTracker.updateBeacons(beaconList);
-
-    // Add debug logging
-    if (beaconList.isNotEmpty) {
-      debugPrint(
-          "🔍 Current beacons: ${beaconList.map((b) => '${b.id}: (${b.position?.x}, ${b.position?.y})').join(', ')}");
-    }
+  // Add this helper to restart scanning safely
+  void _restartScanning() async {
+    await _scanSubscription?.cancel();
+    _scanSubscription = null;
+    _startScanning();
   }
 
   // Fetch configuration from backend
@@ -762,7 +777,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const GameScreen()),
-                  );
+                  ).then((_) {
+                    _restartScanning(); // Restart scan when returning
+                  });
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kTealColor,
@@ -819,8 +836,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       debugPrint('❌ Required permissions not granted. BLE scan aborted.');
       return;
     }
+    await _scanSubscription?.cancel();
     if (Platform.isIOS) {
-      await _scanSubscription?.cancel();
       _scanSubscription = flutterReactiveBle.scanForDevices(
         withServices: [],
         scanMode: ScanMode.lowLatency,
@@ -835,22 +852,22 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             setState(() {
               scannedDevices[beaconId] = device.rssi;
             });
-            _updateBeaconList();
           }
         }
       }, onError: (e) {
         debugPrint("❌ iOS BLE scan error: $e");
+        Future.delayed(const Duration(seconds: 2), _restartScanning);
+      }, onDone: () {
+        debugPrint("🔄 BLE scan stream ended, restarting...");
+        Future.delayed(const Duration(seconds: 2), _restartScanning);
       });
     } else if (Platform.isAndroid) {
-      // Android-specific scanning
       _scanSubscription = flutterReactiveBle.scanForDevices(
         withServices: [],
         scanMode: ScanMode.lowLatency,
       ).listen((device) {
-        // Handle both Kontakt beacons and generic BLE devices
         if (device.name.toLowerCase() == "kontakt" && 
             device.serviceData.containsKey(Uuid.parse("FE6A"))) {
-          // Kontakt beacon format - similar to iOS
           final rawData = device.serviceData[Uuid.parse("FE6A")]!;
           final asciiBytes = rawData.sublist(13);
           final beaconId = String.fromCharCodes(asciiBytes);
@@ -859,24 +876,25 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             setState(() {
               scannedDevices[beaconId] = device.rssi;
             });
-            _updateBeaconList();
           }
         } else {
-          // For other devices, check if the MAC address is in our mapping
-          final mac = device.id; // On Android, device.id is the MAC address
+          final mac = device.id;
           if (mac_to_id_map.containsKey(mac)) {
             final beaconId = mac_to_id_map[mac]!;
             if (beaconIdToPosition.containsKey(beaconId)) {
               setState(() {
                 scannedDevices[beaconId] = device.rssi;
               });
-              _updateBeaconList();
               debugPrint("🔗 Mapped MAC $mac to beacon ID $beaconId");
             }
           }
         }
       }, onError: (e) {
         debugPrint("❌ Android BLE scan error: $e");
+        Future.delayed(const Duration(seconds: 2), _restartScanning);
+      }, onDone: () {
+        debugPrint("🔄 BLE scan stream ended, restarting...");
+        Future.delayed(const Duration(seconds: 2), _restartScanning);
       });
     }
     

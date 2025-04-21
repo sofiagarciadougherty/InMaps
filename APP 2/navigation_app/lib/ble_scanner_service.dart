@@ -11,6 +11,7 @@ class BLEScannerService {
 
   final FlutterReactiveBle flutterReactiveBle = FlutterReactiveBle();
   final Map<String, int> scannedDevices = {};
+  final Map<String, DateTime> lastSeenMap = {};
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
   
   // Stream controller for RSSI updates
@@ -53,6 +54,7 @@ class BLEScannerService {
 
         if (beaconIdToPosition.containsKey(beaconId)) {
           scannedDevices[beaconId] = device.rssi;
+          lastSeenMap[beaconId] = DateTime.now();
           onUpdate(beaconId, device.rssi);
           
           // Emit the updated RSSI values to the stream
@@ -66,6 +68,7 @@ class BLEScannerService {
           final beaconId = _macToIdMap[mac]!;
           if (beaconIdToPosition.containsKey(beaconId)) {
             scannedDevices[beaconId] = device.rssi;
+            lastSeenMap[beaconId] = DateTime.now();
             onUpdate(beaconId, device.rssi);
             
             // Emit the updated RSSI values to the stream
@@ -96,6 +99,7 @@ class BLEScannerService {
 
         if (beaconIdToPosition.containsKey(beaconId)) {
           scannedDevices[beaconId] = device.rssi;
+          lastSeenMap[beaconId] = DateTime.now();
           
           // Emit the updated RSSI values to the stream
           _rssiController.add(Map<String, int>.from(scannedDevices));
@@ -108,6 +112,7 @@ class BLEScannerService {
           final beaconId = _macToIdMap[mac]!;
           if (beaconIdToPosition.containsKey(beaconId)) {
             scannedDevices[beaconId] = device.rssi;
+            lastSeenMap[beaconId] = DateTime.now();
             
             // Emit the updated RSSI values to the stream
             _rssiController.add(Map<String, int>.from(scannedDevices));
