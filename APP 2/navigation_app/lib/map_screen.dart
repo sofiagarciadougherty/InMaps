@@ -44,6 +44,10 @@ class _MapScreenState extends State<MapScreen> {
 
   Offset basePosition = Offset.zero;
   static const double cellSize = 40.0;
+  
+  // Add variables for booth tap handling
+  dynamic tappedBooth = null;
+  OverlayEntry? _overlayEntry;
 
   @override
   void initState() {
@@ -108,10 +112,79 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // Add method to show booth description overlay
+  void _showBoothDescription(dynamic booth, Offset position) {
+    // Remove any existing overlay
+    _removeOverlay();
+    
+    // Create the overlay entry
+    _overlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: position.dx - 150,
+        top: position.dy - 100,
+        child: Material(
+          elevation: 8.0,
+          borderRadius: BorderRadius.circular(8.0),
+          child: Container(
+            width: 300,
+            padding: const EdgeInsets.all(12.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 10.0,
+                  spreadRadius: 1.0,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  booth["name"],
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16.0,
+                  ),
+                ),
+                const SizedBox(height: 8.0),
+                Text(
+                  booth["description"] ?? "No description available",
+                  style: const TextStyle(fontSize: 14.0),
+                ),
+                const SizedBox(height: 8.0),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _removeOverlay,
+                    child: const Text("Close"),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    // Insert the overlay
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+  
+  // Add method to remove the overlay
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
   @override
   void dispose() {
     _headingSub?.cancel();
     _accelSub?.cancel();
+    _removeOverlay();
     super.dispose();
   }
 
@@ -121,26 +194,43 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(title: const Text("Map View")),
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : InteractiveViewer(
-        minScale: 0.2,
-        maxScale: 5.0,
-        boundaryMargin: const EdgeInsets.all(1000),
-        child: Container(
-          width: maxX,
-          height: maxY,
-          color: Colors.white,
-          child: CustomPaint(
-            size: Size(maxX, maxY),
-            painter: MapPainter(
-              elements,
-              currentPath,
-              basePosition,
-              currentHeading,
-              imuOffset,
+          : GestureDetector(
+              onTapDown: (details) {
+                // Check if a booth was tapped
+                for (var el in elements) {
+                  final start = el["start"];
+                  final end = el["end"];
+                  final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                  final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                  final rect = Rect.fromPoints(startOffset, endOffset);
+                  
+                  if (rect.contains(details.localPosition)) {
+                    _showBoothDescription(el, details.localPosition);
+                    break;
+                  }
+                }
+              },
+              child: InteractiveViewer(
+                minScale: 0.2,
+                maxScale: 5.0,
+                boundaryMargin: const EdgeInsets.all(1000),
+                child: Container(
+                  width: maxX,
+                  height: maxY,
+                  color: Colors.white,
+                  child: CustomPaint(
+                    size: Size(maxX, maxY),
+                    painter: MapPainter(
+                      elements,
+                      currentPath,
+                      basePosition,
+                      currentHeading,
+                      imuOffset,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
     );
   }
   Future<void> updatePath() async {
