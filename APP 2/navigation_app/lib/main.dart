@@ -22,7 +22,7 @@ class NavigationApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Indoor Navigation',
+      title: 'InMaps',
       theme: ThemeData(primarySwatch: Colors.teal),
       home: BLEScannerPage(),
     );
@@ -537,29 +537,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
             ),
             const SizedBox(height: 12),
 
-            // Display current position
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.teal[50],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Current Position:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 4),
-                  Text('X: ${currentPosition.x.toStringAsFixed(2)}, Y: ${currentPosition.y.toStringAsFixed(2)}'),
-                  SizedBox(height: 4),
-                  Text('Detected beacons: ${beaconList.length}'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
             // 2) Connect To Event (Beacon scan)
             SizedBox(
               width: double.infinity,
@@ -655,37 +632,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
                 child: const Text("Show Map"),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // Beacon information
-            if (beaconList.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Beacon Information:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 8),
-                    ...beaconList.map((beacon) {
-                      final distance = rssiToDistance(beacon.rssi ?? beacon.baseRssi, beacon.baseRssi);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4.0),
-                        child: Text(
-                          '${beacon.id}: RSSI ${beacon.rssi}dBm (≈${distance.toStringAsFixed(1)}m)',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
             const SizedBox(height: 12),
 
             // 7) Game Mode (Navigate to GameScreen)
