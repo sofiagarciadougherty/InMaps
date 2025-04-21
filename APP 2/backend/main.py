@@ -314,18 +314,37 @@ def get_booth_by_id(booth_id: int):
     booth = next((b for b in booth_data if b["booth_id"] == booth_id), None)
     return booth or {"error": "Booth not found"}
 
+
 @app.get("/map-data")
 def get_map_data():
+    global WALKABLE_ZONES
     visual_elements = []
+    WALKABLE_ZONES.clear()  # Clear old walkable zones first
+
     for booth in booth_data:
-        visual_elements.append({
+        element = {
             "name": booth["name"],
             "description": booth["description"],
             "type": booth["type"],
             "start": booth["area"]["start"],
             "end": booth["area"]["end"]
-        })
+        }
+        visual_elements.append(element)
+
+        # ⚡️ If the booth is a walkable zone, add it
+        if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
+            start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
+            start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
+            end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
+            end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
+            WALKABLE_ZONES.append({
+                "start": (start_x, start_y),
+                "end":   (end_x, end_y)
+            })
+
+    print(f"✅ Loaded {len(WALKABLE_ZONES)} walkable zones.")
     return JSONResponse(content={"elements": visual_elements})
+
 
 @app.get("/config")
 def get_config():
