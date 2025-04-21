@@ -21,43 +21,41 @@ METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
     booths = []
-    print("📦 Loading booths from CSV…")
+    print("📦 Loading booths from CSV...")
 
     for _, row in df.iterrows():
+        coord_cell = row["Coordinates"]
+        if not isinstance(coord_cell, str):
+            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
+            continue
         try:
-            # Parse rectangle corners
-            start_x = float(row["Start_X"])
-            start_y = float(row["Start_Y"])
-            end_x   = float(row["End_X"])
-            end_y   = float(row["End_Y"])
-            # Parse the center-point tuple "(x, y)"
+            coords = json.loads(coord_cell.replace('\"', '"'))
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
-            print(f"⚠️ Skipping row due to parse error: {e}")
+            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
             continue
 
-        name = row["Name"].strip()
-        # Classify type (adjust as needed)
-        if "blocker" in name.lower():
+        if "blocker" in row["Name"].lower():
             booth_type = "blocker"
-        elif "booth" in name.lower():
+        elif "booth" in row["Name"].lower():
             booth_type = "booth"
         else:
-            booth_type = "other"
+            booth_type = "other"  # default/fallback for stuff like bathroom
 
-        booths.append({
-            "booth_id":   int(row["ID"]),
-            "name":       name,
-            "type":       booth_type,
-            "description": row.get("Description", "No description available"),
-            "area": {
-                "start": {"x": start_x, "y": start_y},
-                "end":   {"x": end_x,   "y": end_y},
-            },
-            "center": {"x": center[0], "y": center[1]},
-        })
+        name = row["Name"].strip()
+
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
+        booths.append({
+            "booth_id": int(row["Booth ID"]),
+            "name": name,
+            "type": booth_type,
+            "area": {
+                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
+                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
+            },
+            "center": {"x": center[0], "y": center[1]}
+        })
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
@@ -94,6 +92,8 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
                         venue_grid[gy][gx] = 0  # Mark grid cell as obstacle (blocked)
 
     return venue_grid.tolist()
+
+
 
 
 booth_data = load_booth_data(CSV_PATH)
@@ -154,12 +154,12 @@ class CalibrationRequest(BaseModel):
 def rssi_to_distance(rssi: int, tx_power: int = -59, path_loss_exponent: float = 2.0) -> float:
     """
     Convert RSSI value to physical distance in meters
-    
+
     Args:
         rssi: The RSSI value (in dBm)
         tx_power: Calibrated signal strength at 1 meter (default: -59 dBm)
         path_loss_exponent: Environment-specific attenuation factor (default: 2.0 for free space)
-        
+
     Returns:
         Estimated distance in meters
     """
@@ -177,14 +177,14 @@ def locate_user(data: BLEScan):
         beacon_id = reading.uuid
         if ":" in reading.uuid:  # This is likely a MAC address
             beacon_id = MAC_TO_ID_MAP.get(reading.uuid, reading.uuid)
-        
+
         pos = BEACON_POSITIONS.get(beacon_id)
         if pos:
             # Convert RSSI to distance in meters
             distance_meters = rssi_to_distance(reading.rssi)
             # Convert weight based on physical distance (inverse square law)
             weight = 1 / max(0.1, distance_meters ** 2)
-            
+
             weighted_sum_x += pos[0] * weight
             weighted_sum_y += pos[1] * weight
             total_weight += weight
@@ -206,10 +206,10 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-    cell_size = CELL_SIZE
+    cell_size = 50
     goal_grid = (
-        int(booth["center"]["x"] // cell_size),
-        int(booth["center"]["y"] // cell_size)
+        int(booth["center"]["x"] // CELL_SIZE),
+        int(booth["center"]["y"] // CELL_SIZE)
     )
 
     def find_nearest_free_cell(goal, grid):
@@ -258,14 +258,15 @@ def get_booth_by_id(booth_id: int):
 @app.get("/map-data")
 def get_map_data():
     visual_elements = []
+
     for booth in booth_data:
         visual_elements.append({
-            "name":        booth["name"],
-            "type":        booth["type"],
-            "description": booth["description"],
-            "start":       booth["area"]["start"],
-            "end":         booth["area"]["end"]
+            "name": booth["name"],
+            "type": booth["type"],
+            "start": booth["area"]["start"],
+            "end": booth["area"]["end"]
         })
+
     return JSONResponse(content={"elements": visual_elements})
 
 @app.get("/config")

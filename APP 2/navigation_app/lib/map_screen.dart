@@ -12,12 +12,14 @@ class MapScreen extends StatefulWidget {
   final List<int> startLocation;
   final double headingDegrees;
   final Vector2D initialPosition;
+  final String selectedBoothName;
 
   MapScreen({
     required this.path,
     required this.startLocation,
     required this.headingDegrees,
     required this.initialPosition,
+    required this.selectedBoothName,
   });
 
   @override
@@ -28,20 +30,20 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> elements = [];
   double maxX = 0;
   double maxY = 0;
+  List<int> lastGridPosition = [-1, -1];
+  List<List<dynamic>> currentPath = [];
 
   double currentHeading = 0.0;
   double headingRadians = 0.0;
   StreamSubscription<CompassEvent>? _headingSub;
   StreamSubscription<AccelerometerEvent>? _accelSub;
+  late String selectedBoothName;
 
   Vector2D imuOffset = Vector2D(0, 0);
   int stepCount = 0;
 
   Offset basePosition = Offset.zero;
   static const double cellSize = 40.0;
-
-  // Controller to convert tap coordinates into scene coordinates
-  final TransformationController _transformationController = TransformationController();
 
   @override
   void initState() {
@@ -51,7 +53,8 @@ class _MapScreenState extends State<MapScreen> {
       widget.initialPosition.x,
       widget.initialPosition.y,
     );
-
+    selectedBoothName = widget.selectedBoothName;
+    currentPath = List.from(widget.path);
     fetchMapData();
 
     _headingSub = FlutterCompass.events?.listen((event) {
@@ -72,17 +75,10 @@ class _MapScreenState extends State<MapScreen> {
           imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
           imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
         );
-        print("🦶 Step \$stepCount → IMU Offset: (\${(imuOffset.x/cellSize).toStringAsFixed(2)}m, \${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
+        print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x/cellSize).toStringAsFixed(2)}m, ${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
+        updatePath();
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _headingSub?.cancel();
-    _accelSub?.cancel();
-    _transformationController.dispose();
-    super.dispose();
   }
 
   Future<void> fetchMapData() async {
@@ -90,8 +86,8 @@ class _MapScreenState extends State<MapScreen> {
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        final jsonBody = jsonDecode(response.body);
-        final fetchedElements = jsonBody["elements"];
+        final json = jsonDecode(response.body);
+        final fetchedElements = json["elements"];
         double maxXLocal = 0, maxYLocal = 0;
         for (var el in fetchedElements) {
           final start = el["start"];
@@ -112,34 +108,11 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _handleTapUp(TapUpDetails details) {
-    // Convert the tap into map (scene) coordinates
-    final scenePoint = _transformationController.toScene(details.localPosition);
-
-    for (var el in elements) {
-      final start = el["start"];
-      final end   = el["end"];
-      if (scenePoint.dx >= start["x"] &&
-          scenePoint.dx <= end["x"] &&
-          scenePoint.dy >= start["y"] &&
-          scenePoint.dy <= end["y"]) {
-        // Show description dialog
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text(el["name"]),
-            content: Text(el["description"] ?? "No description available"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-            ],
-          ),
-        );
-        break;
-      }
-    }
+  @override
+  void dispose() {
+    _headingSub?.cancel();
+    _accelSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -149,32 +122,69 @@ class _MapScreenState extends State<MapScreen> {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : InteractiveViewer(
-        transformationController: _transformationController,
         minScale: 0.2,
         maxScale: 5.0,
         boundaryMargin: const EdgeInsets.all(1000),
-        child: GestureDetector(
-          onTapUp: _handleTapUp,
-          child: Container(
-            width: maxX,
-            height: maxY,
-            color: Colors.white,
-            child: CustomPaint(
-              size: Size(maxX, maxY),
-              painter: MapPainter(
-                elements,
-                widget.path,
-                basePosition,
-                currentHeading,
-                imuOffset,
-              ),
+        child: Container(
+          width: maxX,
+          height: maxY,
+          color: Colors.white,
+          child: CustomPaint(
+            size: Size(maxX, maxY),
+            painter: MapPainter(
+              elements,
+              currentPath,
+              basePosition,
+              currentHeading,
+              imuOffset,
             ),
           ),
         ),
       ),
     );
   }
+  Future<void> updatePath() async {
+    final xPixels = basePosition.dx + imuOffset.x;
+    final yPixels = basePosition.dy + imuOffset.y;
+
+    final int xGrid = (xPixels / cellSize).floor();
+    final int yGrid = (yPixels / cellSize).floor();
+
+    if (xGrid == lastGridPosition[0] && yGrid == lastGridPosition[1]) {
+      // User hasn't moved to a new grid cell → don't recalculate
+      return;
+    }
+
+    lastGridPosition = [xGrid, yGrid];
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://inmaps.onrender.com/path'), // <<-- your backend
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "from_": [xGrid, yGrid],
+          "to": selectedBoothName, // 👈 we'll handle this in a second
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          currentPath = List<List<dynamic>>.from(data['path']);
+        });
+
+      } else {
+        print('❌ Failed to fetch path: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Path fetch failed: $e');
+    }
+  }
+
 }
+
+
+
 
 class MapPainter extends CustomPainter {
   final List<dynamic> elements;

@@ -83,26 +83,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
   StreamSubscription<Vector2D>? _positionSubscription;
 
-  Future<void> fetchBoothNames() async {
-    final url = Uri.parse('$backendUrl/booths');
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final List<dynamic> booths = jsonDecode(response.body);
-        setState(() {
-          boothNames = booths
-              .map((b) => b["name"] as String)
-              .toList();
-        });
-        debugPrint("✅ Loaded ${boothNames.length} booth names");
-      } else {
-        debugPrint("❌ Failed to load booths: ${response.statusCode}");
-      }
-    } catch (e) {
-      debugPrint("❌ Exception while fetching booth list: $e");
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -423,23 +403,13 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
 
   // ------------------- Open Map Screen -------------------
   void openMapScreen() async {
-    debugPrint("🔍 openMapScreen() fired!  userLocation='$userLocation'  selectedBooth='$selectedBooth'");
+    if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
-    if (userLocation.isEmpty || selectedBooth.isEmpty) {
-      final msg = "Missing " +
-          (userLocation.isEmpty ? "location" : "") +
-          (userLocation.isEmpty && selectedBooth.isEmpty ? " & " : "") +
-          (selectedBooth.isEmpty ? "booth" : "");
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Cannot open map: $msg"))
-      );
-      return;
-    }
-
-    // Everything’s set—navigate:
+    // Convert the current position to grid coordinates
     final gridX = (currentPosition.x / gridCellSize).round();
     final gridY = (currentPosition.y / gridCellSize).round();
     final start = [gridX, gridY];
+
     final heading = await FlutterCompass.events!.first;
 
     Navigator.push(
@@ -450,9 +420,26 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
           startLocation: start,
           headingDegrees: heading.heading ?? 0.0,
           initialPosition: currentPosition,
+          selectedBoothName: selectedBooth,
         ),
       ),
     );
+  }
+
+  // ------------------- Fetch Booth Names from Backend -------------------
+  Future<void> fetchBoothNames() async {
+    final url = Uri.parse('$backendUrl/booths');
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final List<dynamic> booths = jsonDecode(response.body);
+        setState(() {
+          boothNames = booths.map((b) => b["name"] as String).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("❌ Exception while fetching booth list: $e");
+    }
   }
 
   // ------------------- UI Build -------------------
@@ -683,6 +670,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     );
   }
 }
+
+
+
 
 
 
