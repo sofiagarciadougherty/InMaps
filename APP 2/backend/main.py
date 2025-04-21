@@ -24,45 +24,40 @@ def load_booth_data(csv_path):
     print("📦 Loading booths from CSV...")
 
     for _, row in df.iterrows():
-        # 1) Parse the numeric corners
-        start_x = float(row["Start_X"])
-        start_y = float(row["Start_Y"])
-        end_x   = float(row["End_X"])
-        end_y   = float(row["End_Y"])
-
-        # 2) Parse the center (should be a string like "(6.40, 28.81)")
+        coord_cell = row["Coordinates"]
+        if not isinstance(coord_cell, str):
+            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
+            continue
         try:
+            coords = json.loads(coord_cell.replace('\"', '"'))
             center = ast.literal_eval(row["Center Coordinates"])
-            center_x, center_y = center
-        except Exception:
-            # fallback: compute it yourself if parsing fails
-            center_x = (start_x + end_x) / 2
-            center_y = (start_y + end_y) / 2
+        except Exception as e:
+            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
+            continue
 
-        # 3) Classify the booth type
-        name = row["Name"].strip()
-        if "blocker" in name.lower():
+        if "blocker" in row["Name"].lower():
             booth_type = "blocker"
-        elif "booth" in name.lower():
+        elif "booth" in row["Name"].lower():
             booth_type = "booth"
         else:
-            booth_type = "other"
+            booth_type = "other"  # default/fallback for stuff like bathroom
+
+        name = row["Name"].strip()
 
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
-        # 4) Now you can safely use start_x, start_y, etc.
         booths.append({
-            "booth_id":   int(row["ID"]),
-            "name":       name,
-            "description":row["Description"],
-            "type":       booth_type,
+            "booth_id": int(row["Booth ID"]),
+            "name": name,
+            "description": description,
+            "type": booth_type,
             "area": {
-                "start": {"x": start_x, "y": start_y},
-                "end":   {"x": end_x,   "y": end_y},
+                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
+                "end": {"x": coords["end"]["x"], "y": coords["end"]["y"]},
             },
-            "center": {"x": center_x, "y": center_y}
-        })
+            "center": {"x": center[0], "y": center[1]}
 
+        })
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
@@ -73,15 +68,19 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
     venue_grid = np.ones((grid_height, grid_width), dtype=int)
 
     for _, row in df.iterrows():
-        coord_cell = row["Start_X"]
+        coord_cell = row["Coordinates"]
         if not isinstance(coord_cell, str):
+            continue
+        try:
+            coords = json.loads(coord_cell.replace('\"', '"'))
+        except Exception:
             continue
 
         if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(row["Start_X"])
-            start_px_y = int(row["Start_Y"])
-            end_px_x = int(row["End_X"])
-            end_px_y = int(row["End_Y"])
+            start_px_x = int(coords["start"]["x"])
+            start_px_y = int(coords["start"]["y"])
+            end_px_x = int(coords["end"]["x"])
+            end_px_y = int(coords["end"]["y"])
 
             # Compute the grid cells covered by the booth/blocker area
             start_grid_x = start_px_x // grid_size
@@ -265,9 +264,11 @@ def get_map_data():
     for booth in booth_data:
         visual_elements.append({
             "name": booth["name"],
+            "description": booth["description"],
             "type": booth["type"],
             "start": booth["area"]["start"],
             "end": booth["area"]["end"]
+
         })
 
     return JSONResponse(content={"elements": visual_elements})
