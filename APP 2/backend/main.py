@@ -144,11 +144,14 @@ BEACON_MAC_MAP = {
 MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
 
 # Beacon positions (using iOS IDs for consistency with frontend)
-# BEACON_POSITIONS = {
-#     "14j906Gy": (0, 0),
-#     "14jr08Ef": (1, 0),
-#     "14j606Gv": (0, 1)
-# }
+BEACON_POSITIONS = {
+    b["name"]: (
+        int(b["center"]["x"] // CELL_SIZE),
+        int(b["center"]["y"] // CELL_SIZE),
+    )
+    for b in booth_data
+    if b["type"] == "beacon"
+}
 
 # ====== Models ======
 class BLEReading(BaseModel):
