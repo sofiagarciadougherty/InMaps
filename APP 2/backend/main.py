@@ -259,7 +259,6 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-
     goal_x = int(booth["center"]["x"] // CELL_SIZE)
     goal_y = int(booth["center"]["y"] // CELL_SIZE)
     n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
@@ -267,10 +266,9 @@ def get_path(request: PathRequest):
     goal_y = max(0, min(goal_y, n_rows - 1))
     goal_grid = (goal_x, goal_y)
 
-
     def find_nearest_free_cell(goal, grid):
         h, w = len(grid), len(grid[0])
-        q = deque([ (goal[0], goal[1]) ])
+        q = deque([(goal[0], goal[1])])
         seen = { (goal[0], goal[1]) }
         while q:
             x, y = q.popleft()
@@ -292,7 +290,7 @@ def get_path(request: PathRequest):
         print("⚠️ Goal is blocked. Searching for nearby free cell...")
         new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
         if not new_goal:
-            print("❌ No valid nearby goal found.")
+            print("❌ No valid nearby goal found (even after search).")
             return JSONResponse(
                 content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
                 status_code=404
@@ -301,11 +299,19 @@ def get_path(request: PathRequest):
         goal_grid = new_goal
 
     path = a_star(tuple(request.from_), goal_grid)
+
+    if not path:
+        print("❌ A* search failed: no path found even after redirecting goal.")
+        return JSONResponse(
+            content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
+            status_code=404
+        )
+
     print(f"🧭 Final path: {path}")
-    if path:
-        print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
+    print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
 
     return {"path": path}
+
 
 
 @app.get("/booths")
