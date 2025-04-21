@@ -24,7 +24,7 @@ class NavigationApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Indoor Navigation',
+      title: 'InMaps',
       theme: ThemeData(primarySwatch: Colors.teal),
       home: BLEScannerPage(),
     );

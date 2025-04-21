@@ -38,7 +38,7 @@ SPEC CHECKSUMS:
   flutter_compass: b236ab69b61545cce89fd58527f401a7587d5cc1
   Protobuf: 2e6de032ba12b9efb390ae550d1a243a5b19ddfc
   reactive_ble_mobile: ea97709e18fa6f0b0592909725d7ae7e1c595b64
-  sensors_plus: 6a11ed0c2e1d0bd0b20b4029d3bad27d96e0c65b
+  sensors_plus: 2ba4ccef05473d428576bd640f0409c833a9bdea
   SwiftProtobuf: b7aa08087e2ab6d162862d143020091254095f69
 
 PODFILE CHECKSUM: 4305caec6b40dde0ae97be1573c53de1882a07e5
