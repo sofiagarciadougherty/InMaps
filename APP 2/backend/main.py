@@ -223,11 +223,17 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-    cell_size = 50
-    goal_grid = (
-        int(booth["center"]["x"] // CELL_SIZE),
-        int(booth["center"]["y"] // CELL_SIZE)
-    )
+
+    goal_x = int(booth["center"]["x"] // CELL_SIZE)
+    goal_y = int(booth["center"]["y"] // CELL_SIZE)
+    #  ⬇️ GUARD AGAINST OUT‑OF‑BOUNDS
+    max_rows = len(VENUE_GRID)
+    max_cols = len(VENUE_GRID[0])
+    if not (0 <= goal_x < max_cols and 0 <= goal_y < max_rows):
+        print(f"⚠️ Goal cell {(goal_x, goal_y)} out of bounds (grid={max_cols}×{max_rows})")
+        return {"path": []}
+
+    goal_grid = (goal_x, goal_y)
 
     def find_nearest_free_cell(goal, grid):
         directions = [
