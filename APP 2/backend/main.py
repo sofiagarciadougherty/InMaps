@@ -410,8 +410,11 @@ def is_inside_walkable(x, y, walkable_zones):
     for area in walkable_zones:
         sx, sy = area["start"]
         ex, ey = area["end"]
-        min_x, max_x = min(sx, ex)
-        min_y, max_y = max(sy, ey)
+        min_x = min(sx, ex)
+        max_x = max(sx, ex)
+        min_y = min(sy, ey)
+        max_y = max(sy, ey)
+
         if min_x <= x <= max_x and min_y <= y <= max_y:
             return True
     return False
