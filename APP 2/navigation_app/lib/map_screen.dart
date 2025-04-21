@@ -6,6 +6,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
 import './utils/vector2d.dart';
+import 'package:vector_math/vector_math_64.dart' show Vector3;
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
@@ -61,6 +62,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     super.initState();
 
     basePosition = Offset(widget.initialPosition.x, widget.initialPosition.y);
+    currentPath = [
+          widget.startLocation,
+          ...widget.path
+        ].map<List<dynamic>>((row) => List<dynamic>.from(row)).toList();
     currentPath = List.from(widget.path);
 
     _moveController = AnimationController(
@@ -170,47 +175,84 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final screen = MediaQuery.of(context).size;
     _overlayEntry = OverlayEntry(
       builder: (ctx) => Positioned(
-        left: (screen.width - 300) / 2,
-        top: (screen.height - 150) / 2,
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
         child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            width: 300,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      booth["type"] == "booth" ? Icons.store :
-                      booth["type"] == "blocker" ? Icons.block : Icons.info,
-                      color: booth["type"] == "booth" ? Colors.green :
-                      booth["type"] == "blocker" ? Colors.red : Colors.blueGrey,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        booth["name"],
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              width: 300,
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF008C9E).withOpacity(0.8),
+                          const Color(0xFF008C9E),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(booth["description"] ?? "No description"),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(onPressed: _removeOverlay, child: const Text("Close")),
-                ),
-              ],
+                    child: Row(
+                      children: [
+                        Icon(
+                          booth["type"] == "booth" ? Icons.store :
+                          booth["type"] == "blocker" ? Icons.block : Icons.info,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            booth["name"],
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      booth["description"] ?? "No description available",
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: TextButton(
+                      onPressed: _removeOverlay,
+                      child: const Text("Close"),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -341,80 +383,98 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Stack(
-              children: [
-                InteractiveViewer(
-                  transformationController: _transformationController,
-                  minScale: 0.2,
-                  maxScale: 5.0,
-                  boundaryMargin: const EdgeInsets.all(1000),
-                  panEnabled: true,
-                  scaleEnabled: true,
-                  clipBehavior: Clip.none,
-                  constrained: false,
-                  child: Container(
-                    width: maxX,
-                    height: maxY,
-                    child: Stack(
-                      children: [
-                        CustomPaint(
-                          size: Size(maxX, maxY),
-                          painter: MapPainter(
-                            elements, 
-                            currentPath, 
-                            Offset(basePosition.dx, basePosition.dy), 
-                            currentHeading, 
-                            animatedOffset, 
-                            _getMapRotationAngle()
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: GestureDetector(
-                            onTapDown: (details) {
-                              final RenderBox box = context.findRenderObject() as RenderBox;
-                              final localPosition = box.globalToLocal(details.globalPosition);
-                              final matrix = _transformationController.value;
-                              final inverseMatrix = Matrix4.inverted(matrix);
-                              
-                              // Transform the point using the inverse matrix
-                              final transformedX = inverseMatrix.getTranslation().x + 
-                                  (localPosition.dx * inverseMatrix.getMaxScaleOnAxis());
-                              final transformedY = inverseMatrix.getTranslation().y + 
-                                  (localPosition.dy * inverseMatrix.getMaxScaleOnAxis());
-                              
-                              for (var el in elements) {
-                                if (el["type"] == "beacon") continue;
-                                final start = el["start"];
-                                final end = el["end"];
-                                final rect = Rect.fromPoints(
-                                  Offset(start["x"].toDouble(), start["y"].toDouble()),
-                                  Offset(end["x"].toDouble(), end["y"].toDouble()),
-                                );
-                                if (rect.contains(Offset(transformedX, transformedY))) {
-                                  _showBoothDescription(el);
-                                  return;
-                                }
-                              }
-                              _removeOverlay();
-                            },
-                            child: Container(color: Colors.transparent),
-                          ),
-                        ),
-                      ],
+        children: [
+          InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: 0.2,
+            maxScale: 5.0,
+            boundaryMargin: const EdgeInsets.all(1000),
+            panEnabled: true,
+            scaleEnabled: true,
+            clipBehavior: Clip.none,
+            constrained: false,
+            child: Container(
+              width: maxX,
+              height: maxY,
+              child: Stack(
+                children: [
+                  CustomPaint(
+                    size: Size(maxX, maxY),
+                    painter: MapPainter(
+                        elements,
+                        currentPath,
+                        Offset(basePosition.dx, basePosition.dy),
+                        currentHeading,
+                        animatedOffset,
+                        _getMapRotationAngle()
                     ),
                   ),
-                ),
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton(
-                    onPressed: _centerOnUser,
-                    backgroundColor: const Color(0xFF008C9E),
-                    child: const Icon(Icons.my_location, color: Colors.white),
-                    tooltip: 'Center on my location',
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTapDown: (details) {
+                        // 1) Convert the screen coordinate into the map's coordinate system:
+                        final box = context.findRenderObject() as RenderBox;
+                        final localPos = box.globalToLocal(details.globalPosition);
+                        final invMatrix = Matrix4.inverted(_transformationController.value);
+                        final v = invMatrix.transform3(Vector3(localPos.dx, localPos.dy, 0));
+
+                        final tapPoint = Offset(v.x, v.y);
+                        print("🎯 Tap at: (${tapPoint.dx}, ${tapPoint.dy})"); // Debug print
+
+                        // 2) Check each booth's center with a very small radius
+                        const tapRadius = 5.0; // Much smaller radius for more precise tapping
+                        dynamic closestBooth;
+                        double minDistance = double.infinity;
+
+                        for (var el in elements) {
+                          final type = (el['type'] as String).toLowerCase();
+                          if (type == 'zone' || type == 'beacon') continue;
+
+                          final start = el['start'];
+                          final end   = el['end'];
+                          final center = Offset(
+                              (start['x'].toDouble() + end['x'].toDouble())/2,
+                              (start['y'].toDouble() + end['y'].toDouble())/2
+                          );
+
+                          print("📍 Booth ${el['name']} center: (${center.dx}, ${center.dy})"); // Debug print
+
+                          final distance = (tapPoint - center).distance;
+                          print("📏 Distance to ${el['name']}: $distance"); // Debug print
+
+                          if (distance < minDistance) {
+                            minDistance = distance;
+                            closestBooth = el;
+                          }
+                        }
+
+                        // Only trigger if we're very close to a booth
+                        if (minDistance < tapRadius && closestBooth != null) {
+                          print("✅ Selected booth: ${closestBooth['name']} at distance $minDistance"); // Debug print
+                          _showBoothDescription(closestBooth);
+                        } else {
+                          _removeOverlay();
+                        }
+                      },
+                      child: Container(color: Colors.transparent),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: _centerOnUser,
+              backgroundColor: const Color(0xFF008C9E),
+              child: const Icon(Icons.my_location, color: Colors.white),
+              tooltip: 'Center on my location',
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -427,7 +487,7 @@ class MapPainter extends CustomPainter {
   final Offset animatedOffset;
   final double manualRotation;
 
-  static const double cellSize = 40.0;
+  static const double cellSize =40.0;
 
   MapPainter(
       this.elements,
@@ -463,7 +523,11 @@ class MapPainter extends CustomPainter {
 
     // Draw shadows
     for (var el in elements) {
-      if (el["type"] == "booth") {
+      final type = (el["type"] as String).toLowerCase();
+      if (type == "zone"){
+        continue;
+      }
+      if (type == "booth") {
         final start = el["start"];
         final end = el["end"];
         canvas.drawRRect(
@@ -477,27 +541,59 @@ class MapPainter extends CustomPainter {
     }
     // Draw elements
     for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+
+      // Skip zones completely
+      if (type == "zone" || type == "beacon") continue;
+
       final start = el["start"];
       final end = el["end"];
-      final type = (el["type"] as String).toLowerCase();
-      
-      // Skip zones and beacons
-      if (type == "zone" || type == "beacon") continue;
-      
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+
+      // Draw shadows only for booths
+      if (type == "booth") {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromPoints(startOffset, endOffset).translate(2,2),
+            const Radius.circular(12),
+          ),
+          Paint()..color = Colors.black.withOpacity(0.1)..maskFilter = const MaskFilter.blur(BlurStyle.normal,4),
+        );
+      }
+
       Paint paint;
-      if (type == "blocker") paint = paintBlocker;
-      else if (type == "booth") {
+      if (type == "blocker") {
+        paint = paintBlocker;
+      } else if (type == "booth") {
         paint = Paint()..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [const Color(0xFF008C9E).withOpacity(0.2), const Color(0xFF008C9E).withOpacity(0.3)],
         ).createShader(Rect.fromPoints(startOffset, endOffset));
-      } else paint = paintOther;
-      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromPoints(startOffset, endOffset), const Radius.circular(12)), paint);
+      } else {
+        continue;
+      }
+
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              Rect.fromPoints(startOffset, endOffset),
+              const Radius.circular(12)
+          ),
+          paint
+      );
+
       if (type == "booth") {
-        canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromPoints(startOffset, endOffset), const Radius.circular(12)), Paint()..color = const Color(0xFF008C9E).withOpacity(0.3)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromPoints(startOffset, endOffset),
+                const Radius.circular(12)
+            ),
+            Paint()
+              ..color = const Color(0xFF008C9E).withOpacity(0.3)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5
+        );
       }
     }
     // Draw path
@@ -515,9 +611,14 @@ class MapPainter extends CustomPainter {
     // Draw labels
     final textStyle = const TextStyle(color: Colors.black87, fontSize:12, fontWeight:FontWeight.w500);
     for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+
+      // Skip zones and beacons for labels too
+      if (!["booth", "blocker"].contains(type)) continue;
+
       final start = el["start"];
       final end = el["end"];
-      final name = el["name"];
+      final name = el["name"].toString().substring(0, min(3, el["name"].toString().length));
       final center = Offset((start["x"].toDouble()+end["x"].toDouble())/2, (start["y"].toDouble()+end["y"].toDouble())/2);
       canvas.save();
       canvas.translate(center.dx, center.dy);

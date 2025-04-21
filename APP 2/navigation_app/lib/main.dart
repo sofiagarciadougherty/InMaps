@@ -206,9 +206,9 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   void _initializeDefaultConfig() {
     setState(() {
       beaconIdToPosition = {
-        "14j906Gy": [0, 0],
-        "14jr08Ef": [200, 0],
-        "14j606Gv": [0, 200],
+        "14j906Gy": [500, 500],
+        "14jr08Ef": [700, 500],
+        "14j606Gv": [500, 700],
       };
 
       beacon_mac_map = {
@@ -367,11 +367,15 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     });
   }
 
-  // ------------------- Request Path -------------------
+// ------------------- Request Path -------------------
   Future<void> requestPath(String boothName) async {
-    if (boothName.trim().isEmpty || userLocation.isEmpty || !userLocation.contains(",")) return;
+    if (boothName.trim().isEmpty || userLocation.isEmpty) return;
 
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ gridCellSize).toList();
+    final start = userLocation
+        .split(",")
+        .map((e) => int.parse(e.trim()) ~/ gridCellSize)
+        .toList();
+
     try {
       final response = await http.post(
         Uri.parse('$backendUrl/path'),
@@ -380,40 +384,64 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
       );
 
       if (response.statusCode == 200) {
-        final path = jsonDecode(response.body)["path"];
+        final path = jsonDecode(response.body)["path"] as List;
         setState(() {
           currentPath = List<List<dynamic>>.from(path);
         });
+
+        if (currentPath.isEmpty) {
+          debugPrint("⚠️ No path found to $boothName.");
+        } else {
+          debugPrint("🧭 Path to $boothName: " +
+              currentPath.map((p) => "(${p[0]}, ${p[1]})").join(" → ")
+          );
+        }
+      } else {
+        debugPrint("❌ /path error ${response.statusCode}");
       }
     } catch (e) {
       debugPrint("❌ Error requesting path: $e");
     }
   }
 
-  // ------------------- Open Map Screen -------------------
-  void openMapScreen() async {
+// ------------------- Open Map Screen -------------------
+  Future<void> openMapScreen() async {
+    debugPrint("🔥 openMapScreen fired! selectedBooth=$selectedBooth userLocation=$userLocation");
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
-    // Convert the current position to grid coordinates
+    // 1) Convert to grid coords & capture start
     final gridX = (currentPosition.x / gridCellSize).round();
     final gridY = (currentPosition.y / gridCellSize).round();
     final start = [gridX, gridY];
 
-    final heading = await FlutterCompass.events!.first;
+    // 2) Fetch the backend path
+    await requestPath(selectedBooth);
 
+    // 3) Prepend our start cell to the returned route
+    final displayPath = [
+      [gridX, gridY],
+      ...currentPath
+    ];
+
+    // 4) Get heading
+    final headingEvent = await FlutterCompass.events!.first;
+    final headingDegrees = headingEvent.heading ?? 0.0;
+
+    // 5) Navigate with that complete path
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MapScreen(
-          path: currentPath,
+          path: displayPath,
           startLocation: start,
-          headingDegrees: heading.heading ?? 0.0,
+          headingDegrees: headingDegrees,
           initialPosition: currentPosition,
           selectedBoothName: selectedBooth,
         ),
       ),
     );
   }
+
 
   // ------------------- Fetch Booth Names from Backend -------------------
   Future<void> fetchBoothNames() async {
