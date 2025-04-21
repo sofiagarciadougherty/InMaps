@@ -22,7 +22,7 @@ CELL_SIZE = 40  # pixels per grid cell
 METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, encoding_errors='replace')
     booths = []
     print("📦 Loading booths from CSV...")
 
@@ -80,7 +80,7 @@ def load_booth_data(csv_path):
     return booths
 
 def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, encoding_errors='replace')
     parsed = []
     for cell in df["Coordinates"]:
         if not isinstance(cell, str): continue
