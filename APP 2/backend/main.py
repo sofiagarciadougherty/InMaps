@@ -22,7 +22,7 @@ CELL_SIZE = 40  # pixels per grid cell
 METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
-    df = pd.read_csv(csv_path, encoding_errors='replace',on_bad_lines="skip")
+    df = pd.read_csv(csv_path)
     booths = []
     print("📦 Loading booths from CSV...")
 
@@ -52,9 +52,7 @@ def load_booth_data(csv_path):
         elif "booth" in type.lower():
             booth_type = "booth"
         elif "zone" in type.lower():
-            booth_type = "Zone"
-        elif "stairs" in type.lower():
-             booth_type = "stairs"
+                    booth_type = "Zone"
         else:
             booth_type = "other"
             
@@ -82,7 +80,7 @@ def load_booth_data(csv_path):
     return booths
 
 def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
-    df = pd.read_csv(csv_path, encoding_errors='replace')
+    df = pd.read_csv(csv_path)
     parsed = []
     for cell in df["Coordinates"]:
         if not isinstance(cell, str): continue
@@ -261,6 +259,7 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
+
     goal_x = int(booth["center"]["x"] // CELL_SIZE)
     goal_y = int(booth["center"]["y"] // CELL_SIZE)
     n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
@@ -268,9 +267,10 @@ def get_path(request: PathRequest):
     goal_y = max(0, min(goal_y, n_rows - 1))
     goal_grid = (goal_x, goal_y)
 
+
     def find_nearest_free_cell(goal, grid):
         h, w = len(grid), len(grid[0])
-        q = deque([(goal[0], goal[1])])
+        q = deque([ (goal[0], goal[1]) ])
         seen = { (goal[0], goal[1]) }
         while q:
             x, y = q.popleft()
@@ -292,7 +292,7 @@ def get_path(request: PathRequest):
         print("⚠️ Goal is blocked. Searching for nearby free cell...")
         new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
         if not new_goal:
-            print("❌ No valid nearby goal found (even after search).")
+            print("❌ No valid nearby goal found.")
             return JSONResponse(
                 content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
                 status_code=404
@@ -301,19 +301,11 @@ def get_path(request: PathRequest):
         goal_grid = new_goal
 
     path = a_star(tuple(request.from_), goal_grid)
-
-    if not path:
-        print("❌ A* search failed: no path found even after redirecting goal.")
-        return JSONResponse(
-            content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
-            status_code=404
-        )
-
     print(f"🧭 Final path: {path}")
-    print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
+    if path:
+        print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
 
     return {"path": path}
-
 
 
 @app.get("/booths")
@@ -418,11 +410,8 @@ def is_inside_walkable(x, y, walkable_zones):
     for area in walkable_zones:
         sx, sy = area["start"]
         ex, ey = area["end"]
-        min_x = min(sx, ex)
-        max_x = max(sx, ex)
-        min_y = min(sy, ey)
-        max_y = max(sy, ey)
-
+        min_x, max_x = min(sx, ex)
+        min_y, max_y = max(sy, ey)
         if min_x <= x <= max_x and min_y <= y <= max_y:
             return True
     return False
@@ -435,6 +424,10 @@ def a_star(start, goal):
     neighbors = [(0, 1), (1, 0), (-1, 0), (0, -1)]
     open_set = [(heuristic(start, goal), 0, start, [])]
     visited = set()
+
+    if not is_inside_walkable(start[0], start[1], WALKABLE_ZONES):
+        print("Please go to 2nd floor 🚶‍♂️")
+        return []
 
     while open_set:
             est_total_cost, path_cost, current, path = heappop(open_set)
