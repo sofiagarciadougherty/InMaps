@@ -6,8 +6,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:io' show Platform;
-// carlota
-// Import game_screen.dart but hide MapScreen to avoid conflict.
 import './game_screen.dart' hide MapScreen;
 import './map_screen.dart';
 import './models/beacon.dart';
@@ -86,7 +84,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   @override
   void initState() {
     super.initState();
-  
     _selectedEvent = _events.isNotEmpty ? _events[0] : "";
     flutterReactiveBle.statusStream.listen((status) {
       debugPrint("Bluetooth status: $status");

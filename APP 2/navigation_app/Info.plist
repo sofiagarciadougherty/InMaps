@@ -52,12 +52,8 @@
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>This app uses Bluetooth to connect to beacons and indoor navigation.</string>
-	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>This app uses Bluetooth to scan for nearby devices and beacons.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app uses location services for compass and BLE positioning.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>This app needs location access to detect beacons for indoor positioning.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>This app uses motion sensors (accelerometer) to detect steps and movement indoors.</string>
 </dict>
