@@ -120,8 +120,9 @@ class _MapScreenState extends State<MapScreen> {
     // Create the overlay entry
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
+        // Position the overlay above the booth with some offset
         left: position.dx - 150,
-        top: position.dy - 100,
+        top: position.dy - 120, // Position above the booth
         child: Material(
           elevation: 8.0,
           borderRadius: BorderRadius.circular(8.0),
@@ -143,12 +144,25 @@ class _MapScreenState extends State<MapScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  booth["name"],
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16.0,
-                  ),
+                Row(
+                  children: [
+                    Icon(
+                      booth["type"] == "booth" ? Icons.store : 
+                      booth["type"] == "blocker" ? Icons.block : Icons.info,
+                      color: booth["type"] == "booth" ? Colors.green : 
+                             booth["type"] == "blocker" ? Colors.red : Colors.blueGrey,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        booth["name"],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16.0,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8.0),
                 Text(
@@ -197,7 +211,13 @@ class _MapScreenState extends State<MapScreen> {
           : GestureDetector(
               onTapDown: (details) {
                 // Check if a booth was tapped
+                bool boothTapped = false;
                 for (var el in elements) {
+                  // Skip elements with type "beacon"
+                  if (el["type"].toString().toLowerCase() == "beacon") {
+                    continue;
+                  }
+                  
                   final start = el["start"];
                   final end = el["end"];
                   final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
@@ -205,9 +225,20 @@ class _MapScreenState extends State<MapScreen> {
                   final rect = Rect.fromPoints(startOffset, endOffset);
                   
                   if (rect.contains(details.localPosition)) {
-                    _showBoothDescription(el, details.localPosition);
+                    boothTapped = true;
+                    // Calculate the center of the booth for better positioning of the overlay
+                    final boothCenter = Offset(
+                      (start["x"] + end["x"]) / 2,
+                      (start["y"] + end["y"]) / 2,
+                    );
+                    _showBoothDescription(el, boothCenter);
                     break;
                   }
+                }
+                
+                // If no booth was tapped and overlay is showing, dismiss it
+                if (!boothTapped && _overlayEntry != null) {
+                  _removeOverlay();
                 }
               },
               child: InteractiveViewer(
@@ -308,10 +339,17 @@ class MapPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     for (var el in elements) {
+      // Skip elements with type "beacon" - improved filtering
+      final elementType = el["type"].toString().toLowerCase();
+      if (elementType.contains("beacon")) {
+        print("Skipping beacon element: ${el["name"]}");
+        continue;
+      }
+      
       final start = el["start"];
       final end = el["end"];
       final name = el["name"];
-      final type = el["type"].toString().toLowerCase();
+      final type = elementType;
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
       final center = Offset(

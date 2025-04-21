@@ -44,10 +44,10 @@ def load_booth_data(csv_path):
             continue
 
         # 2) Determine type
-        name = row["Name"].strip()
-        if "blocker" in name.lower():
-            booth_type = "blocker"
-        elif "booth" in name.lower():
+        type = row["Type"].strip()
+        if "beacon" in type.lower():
+            booth_type = "beacon"
+        elif "booth" in type.lower():
             booth_type = "booth"
         else:
             booth_type = "other"

@@ -668,9 +668,3 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     );
   }
 }
-
-
-
-
-
-
