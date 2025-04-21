@@ -17,7 +17,7 @@ CSV_PATH = "booth_coordinates.csv"
 # Add calibration constants
 CELL_SIZE = 40  # pixels per grid cell
 # Default conversion factor - calibratable
-METERS_TO_GRID_FACTOR = 40  # 1 grid = 1 meter
+METERS_TO_GRID_FACTOR = 1.0  # 1 grid = 1 meter
 
 def load_booth_data(csv_path):
     df = pd.read_csv(csv_path)
@@ -57,26 +57,16 @@ def load_booth_data(csv_path):
 
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
-        # Convert meter coordinates to grid cells
         booths.append({
             "booth_id": int(row["ID"]),         # was row["Booth ID"]
             "name": name,
             "description": description,         # now defined
             "type": booth_type,
             "area": {
-                "start": {
-                    "x": int(coords["start"]["x"] / METERS_TO_GRID_FACTOR),
-                    "y": int(coords["start"]["y"] / METERS_TO_GRID_FACTOR)
-                },
-                "end": {
-                    "x": int(coords["end"]["x"] / METERS_TO_GRID_FACTOR),
-                    "y": int(coords["end"]["y"] / METERS_TO_GRID_FACTOR)
-                },
+                "start": {"x": coords["start"]["x"], "y": coords["start"]["y"]},
+                "end":   {"x": coords["end"]["x"],   "y": coords["end"]["y"]},
             },
-            "center": {
-                "x": int(center[0] / METERS_TO_GRID_FACTOR),
-                "y": int(center[1] / METERS_TO_GRID_FACTOR)
-            }
+            "center": {"x": center[0], "y": center[1]}
         })
 
     print(f"📊 Total booths loaded: {len(booths)}")
@@ -94,16 +84,15 @@ def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size
             continue
         try:
             coord_str = re.sub(r'([{,]\s*)(\w+)\s*:', r'\1"\2":', coord_cell)
-            coords = json.loads(coord_str)
+            coords    = json.loads(coord_str)
         except Exception:
             continue
 
         if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            # Convert meter coordinates to grid cells
-            start_px_x = int(coords["start"]["x"] * METERS_TO_GRID_FACTOR)
-            start_px_y = int(coords["start"]["y"] * METERS_TO_GRID_FACTOR)
-            end_px_x = int(coords["end"]["x"] * METERS_TO_GRID_FACTOR)
-            end_px_y = int(coords["end"]["y"] * METERS_TO_GRID_FACTOR)
+            start_px_x = int(coords["start"]["x"])
+            start_px_y = int(coords["start"]["y"])
+            end_px_x = int(coords["end"]["x"])
+            end_px_y = int(coords["end"]["y"])
 
             # Compute the grid cells covered by the booth/blocker area
             start_grid_x = start_px_x // grid_size
@@ -226,17 +215,12 @@ def get_path(request: PathRequest):
     print("✅ /path endpoint hit:", request)
     booth_name = request.to.strip().lower()
     booth = next((b for b in booth_data if b["name"].strip().lower() == booth_name), None)
+
     if not booth:
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-    # Convert start coordinates from meters to grid cells
-    start_grid = (
-        int(request.from_[0] * METERS_TO_GRID_FACTOR),
-        int(request.from_[1] * METERS_TO_GRID_FACTOR)
-    )
-    
-    # Goal coordinates are already in grid cells from booth data
+    cell_size = 50
     goal_grid = (
         int(booth["center"]["x"] // CELL_SIZE),
         int(booth["center"]["y"] // CELL_SIZE)
@@ -254,7 +238,7 @@ def get_path(request: PathRequest):
                     return (nx, ny)
         return None
 
-    print(f"📍 Routing from {start_grid} to grid cell {goal_grid}")
+    print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
     print("🧱 Sample grid slice at goal:")
     print(np.array(VENUE_GRID)[goal_grid[1]-1:goal_grid[1]+2, goal_grid[0]-1:goal_grid[0]+2])
 
@@ -268,14 +252,12 @@ def get_path(request: PathRequest):
         print(f"✅ Redirected goal to: {new_goal}")
         goal_grid = new_goal
 
-    path = a_star(start_grid, goal_grid)
+    path = a_star(tuple(request.from_), goal_grid)
     print(f"🧭 Final path: {path}")
     if path:
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
-        # Convert path back to meters for the client
-        path_in_meters = [(x / METERS_TO_GRID_FACTOR, y / METERS_TO_GRID_FACTOR) for x, y in path]
-        return {"path": path_in_meters}
-    return {"path": []}
+
+    return {"path": path}
 
 
 @app.get("/booths")
