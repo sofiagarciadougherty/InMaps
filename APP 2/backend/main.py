@@ -77,40 +77,32 @@ def load_booth_data(csv_path):
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
-def generate_venue_grid(csv_path, canvas_width=800, canvas_height=600, grid_size=CELL_SIZE):
+def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
     df = pd.read_csv(csv_path)
-    grid_width = canvas_width // grid_size
-    grid_height = canvas_height // grid_size
-    venue_grid = np.ones((grid_height, grid_width), dtype=int)
-
-    for _, row in df.iterrows():
-        coord_cell = row["Coordinates"]
-        if not isinstance(coord_cell, str):
-            continue
+    parsed = []
+    for cell in df["Coordinates"]:
+        if not isinstance(cell, str): continue
+        coord_str = re.sub(r'([{,]\s*)(\w+)\s*:', r'\1"\2":', cell)
         try:
-            coord_str = re.sub(r'([{,]\s*)(\w+)\s*:', r'\1"\2":', coord_cell)
-            coords    = json.loads(coord_str)
-        except Exception:
+            coords = json.loads(coord_str)
+            parsed.append(coords)
+        except json.JSONDecodeError:
             continue
 
-        if any(t in row["Name"].lower() for t in ["blocker", "booth", "bathroom", "other"]):
-            start_px_x = int(coords["start"]["x"])
-            start_px_y = int(coords["start"]["y"])
-            end_px_x = int(coords["end"]["x"])
-            end_px_y = int(coords["end"]["y"])
+    max_x = max(c["end"]["x"] for c in parsed)
+    max_y = max(c["end"]["y"] for c in parsed)
+    width  = (max_x + grid_size) // grid_size
+    height = (max_y + grid_size) // grid_size
+    grid = np.ones((height, width), dtype=int)
 
-            # Compute the grid cells covered by the booth/blocker area
-            start_grid_x = start_px_x // grid_size
-            start_grid_y = start_px_y // grid_size
-            end_grid_x = end_px_x // grid_size
-            end_grid_y = end_px_y // grid_size
-
-            for gx in range(start_grid_x, end_grid_x + 1):
-                for gy in range(start_grid_y, end_grid_y + 1):
-                    if 0 <= gx < grid_width and 0 <= gy < grid_height:
-                        venue_grid[gy][gx] = 0  # Mark grid cell as obstacle (blocked)
-
-    return venue_grid.tolist()
+    for coords in parsed:
+        sx, sy = coords["start"]["x"], coords["start"]["y"]
+        ex, ey = coords["end"]["x"],   coords["end"]["y"]
+        for gx in range(sx//grid_size, ex//grid_size + 1):
+            for gy in range(sy//grid_size, ey//grid_size + 1):
+                if 0 <= gx < width and 0 <= gy < height:
+                    grid[gy][gx] = 0
+    return grid.tolist()
 
 
 
@@ -247,8 +239,6 @@ def locate_user(data: BLEScan):
 
 @app.post("/path")
 def get_path(request: PathRequest):
-    if len(request.from_) != 2:
-        return JSONResponse(content={"error": "'from_' must be [x,y]"}, status_code=400)
     print("✅ /path endpoint hit:", request)
     booth_name = request.to.strip().lower()
     booth = next((b for b in booth_data if b["name"].strip().lower() == booth_name), None)
@@ -260,14 +250,11 @@ def get_path(request: PathRequest):
 
     goal_x = int(booth["center"]["x"] // CELL_SIZE)
     goal_y = int(booth["center"]["y"] // CELL_SIZE)
-    #  ⬇️ GUARD AGAINST OUT‑OF‑BOUNDS
-    max_rows = len(VENUE_GRID)
-    max_cols = len(VENUE_GRID[0])
-    if not (0 <= goal_x < max_cols and 0 <= goal_y < max_rows):
-        print(f"⚠️ Goal cell {(goal_x, goal_y)} out of bounds (grid={max_cols}×{max_rows})")
-        return {"path": []}
-
+    n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
+    goal_x = max(0, min(goal_x, n_cols - 1))
+    goal_y = max(0, min(goal_y, n_rows - 1))
     goal_grid = (goal_x, goal_y)
+
 
     def find_nearest_free_cell(goal, grid):
         h, w = len(grid), len(grid[0])
