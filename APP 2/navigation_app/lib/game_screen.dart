@@ -170,6 +170,11 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               final end = b["end"] ?? {"x": 0, "y": 0};
               final centerX = ((start["x"] as num) + (end["x"] as num)) / 2;
               final centerY = ((start["y"] as num) + (end["y"] as num)) / 2;
+              // Check if this booth was previously completed
+              final existingTask = tasks.firstWhere(
+                (t) => t["name"] == b["name"],
+                orElse: () => {"completed": false},
+              );
               return {
                 "id": b["booth_id"]?.toString() ?? "",
                 "name": b["name"] ?? "Unnamed",
@@ -178,7 +183,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 "x": centerX,
                 "y": centerY,
                 "points": b["points"] ?? 20,
-                "completed": false, // Always start as not completed
+                "completed": existingTask["completed"] ?? false, // Preserve completion status
               };
             }).where((t) => t["type"] == "booth").toList();
             isLoading = false;
@@ -296,6 +301,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
               selectedBoothName: task["name"],
               onArrival: (arrived) {
+                // Only update completion and points if the task wasn't already completed
                 if (arrived && !task["completed"]) {
                   setState(() {
                     task["completed"] = true;
@@ -314,14 +320,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               },
             ),
           ),
-        ).then((_) {
-          // Reset the task's completed state if the user didn't reach the booth
-          if (!task["completed"]) {
-            setState(() {
-              task["completed"] = false;
-            });
-          }
-        });
+        );
         debugPrint("Navigator.push() called");
       } else {
         debugPrint("Non-200 status code: ${response.statusCode}");
@@ -334,112 +333,208 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
-    // No need to filter tasks here as they're already filtered in _fetchTasks
     return Scaffold(
-      appBar: AppBar(title: const Text("Game Mode")),
+      appBar: AppBar(
+        title: const Text("Game Mode"),
+        backgroundColor: Colors.green.shade700,
+        elevation: 0,
+      ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : tasks.isEmpty
           ? const Center(child: Text("No booths found."))
           : Stack(
-        children: [
-          // Main content: header and task list.
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  "Total Points: $totalPoints",
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: const Text(
-                  "Booths:",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) {
-                    final t = tasks[index];
-                    return InkWell(
-                      onTap: () {
-                        _showTaskDialog(t);
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: t["completed"] ? Colors.green[50] : Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: t["completed"] ? Colors.green : Colors.grey.shade300,
-                            width: t["completed"] ? 2 : 1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              offset: const Offset(0, 2),
-                              blurRadius: 4,
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              t["name"],
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            Text(t["type"] ?? "Booth"),
-                            Text(t["completed"] ? "✅ Completed" : "🕓 Pending"),
-                            Text("Reward: ${t["points"]} pts"),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          // Reward popup overlay.
-          if (showReward)
-            Positioned.fill(
-              child: Center(
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: FadeTransition(
-                    opacity: _opacityAnimation,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+              children: [
+                // Main content: header and task list.
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16.0),
                       decoration: BoxDecoration(
-                        color: Colors.green,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: const [
+                        color: Colors.green.shade700,
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(24),
+                          bottomRight: Radius.circular(24),
+                        ),
+                        boxShadow: [
                           BoxShadow(
-                            color: Colors.black38,
-                            blurRadius: 10,
-                            offset: Offset(0, 4),
+                            color: Colors.green.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Total Points",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            "$totalPoints",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
                       child: Text(
-                        rewardText,
-                        style: const TextStyle(fontSize: 24, color: Colors.white),
+                        "Booths",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: tasks.length,
+                        itemBuilder: (context, index) {
+                          final t = tasks[index];
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: t["completed"] ? Colors.green : Colors.grey.shade300,
+                                width: t["completed"] ? 2 : 1,
+                              ),
+                            ),
+                            child: InkWell(
+                              onTap: () => _showTaskDialog(t),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: t["completed"] ? Colors.green.shade50 : Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          t["completed"] ? Icons.check_circle : Icons.store,
+                                          color: t["completed"] ? Colors.green : Colors.grey,
+                                          size: 24,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            t["name"],
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: t["completed"] ? Colors.green.shade700 : Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      t["type"] ?? "Booth",
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      t["completed"] ? "✅ Completed" : "🕓 Pending",
+                                      style: TextStyle(
+                                        color: t["completed"] ? Colors.green : Colors.orange,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Reward: ${t["points"]} pts",
+                                      style: const TextStyle(
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                // Reward popup overlay.
+                if (showReward)
+                  Positioned.fill(
+                    child: Center(
+                      child: ScaleTransition(
+                        scale: _scaleAnimation,
+                        child: FadeTransition(
+                          opacity: _opacityAnimation,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.green.shade400,
+                                  Colors.green.shade600,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.green.withOpacity(0.3),
+                                  blurRadius: 12,
+                                  spreadRadius: 2,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.stars,
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  rewardText,
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
+              ],
             ),
-        ],
-      ),
     );
   }
 }

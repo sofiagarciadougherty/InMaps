@@ -203,6 +203,42 @@ class _MapScreenState extends State<MapScreen> {
     _overlayEntry = null;
   }
 
+  void _checkArrival() {
+    if (hasNotifiedArrival) return;
+
+    final userCenter = Offset(
+      basePosition.dx + imuOffset.x,
+      basePosition.dy + imuOffset.y,
+    );
+
+    // Find the target booth
+    for (var el in elements) {
+      if (el["type"].toString().toLowerCase() == "booth" && 
+          el["name"] == widget.selectedBoothName) {
+        final start = el["start"];
+        final end = el["end"];
+        final boothCenter = Offset(
+          (start["x"] + end["x"]) / 2,
+          (start["y"] + end["y"]) / 2,
+        );
+
+        // Calculate distance to booth
+        final dx = boothCenter.dx - userCenter.dx;
+        final dy = boothCenter.dy - userCenter.dy;
+        final distance = sqrt(dx * dx + dy * dy);
+
+        // If within 0.5 meters (20 pixels), notify arrival
+        if (distance < 20) {
+          hasNotifiedArrival = true;
+          _showArrivalNotification();
+          // Notify the game screen about arrival
+          widget.onArrival?.call(true);
+          break;
+        }
+      }
+    }
+  }
+
   void _showArrivalNotification() {
     _removeArrivalOverlay();
     
@@ -214,27 +250,56 @@ class _MapScreenState extends State<MapScreen> {
         child: Material(
           color: Colors.transparent,
           child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
+            child: TweenAnimationBuilder<double>(
+              duration: const Duration(milliseconds: 500),
+              tween: Tween(begin: 0.0, end: 1.0),
+              builder: (context, value, child) {
+                return Transform.scale(
+                  scale: value,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.green.shade400,
+                          Colors.green.shade600,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withOpacity(0.3),
+                          blurRadius: 12,
+                          spreadRadius: 2,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.check_circle_outline,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          "You've arrived at ${widget.selectedBoothName}!",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-              child: const Text(
-                "You've arrived at the booth!",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+                );
+              },
             ),
           ),
         ),
@@ -243,15 +308,17 @@ class _MapScreenState extends State<MapScreen> {
     
     Overlay.of(context).insert(_arrivalOverlay!);
     
-    // Remove the notification after 5 seconds
-    Future.delayed(const Duration(seconds: 5), () {
+    // Remove the notification after 3 seconds
+    Future.delayed(const Duration(seconds: 3), () {
       _removeArrivalOverlay();
     });
   }
 
   void _removeArrivalOverlay() {
-    _arrivalOverlay?.remove();
-    _arrivalOverlay = null;
+    if (_arrivalOverlay != null) {
+      _arrivalOverlay!.remove();
+      _arrivalOverlay = null;
+    }
   }
 
   @override
@@ -370,41 +437,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     } catch (e) {
       print('❌ Path fetch failed: $e');
-    }
-  }
-
-  void _checkArrival() {
-    if (hasNotifiedArrival) return;
-
-    final userCenter = Offset(
-      basePosition.dx + imuOffset.x,
-      basePosition.dy + imuOffset.y,
-    );
-
-    // Find the target booth
-    for (var el in elements) {
-      if (el["type"].toString().toLowerCase() == "booth" && 
-          el["name"] == widget.selectedBoothName) {
-        final start = el["start"];
-        final end = el["end"];
-        final boothCenter = Offset(
-          (start["x"] + end["x"]) / 2,
-          (start["y"] + end["y"]) / 2,
-        );
-
-        // Calculate distance to booth
-        final dx = boothCenter.dx - userCenter.dx;
-        final dy = boothCenter.dy - userCenter.dy;
-        final distance = sqrt(dx * dx + dy * dy);
-
-        // If within 0.5 meters (20 pixels), notify arrival
-        if (distance < 20) {
-          hasNotifiedArrival = true;
-          _showArrivalNotification();
-          widget.onArrival?.call(true);
-          break;
-        }
-      }
     }
   }
 }
