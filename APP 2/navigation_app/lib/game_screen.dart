@@ -208,31 +208,17 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (parts.length < 2) return;
     final userX = double.tryParse(parts[0].trim()) ?? 0;
     final userY = double.tryParse(parts[1].trim()) ?? 0;
-    const proximityThreshold = 5.0; // Adjust threshold as needed.
+    const proximityThreshold = 5.0;
 
     for (var task in tasks) {
       if (!task["completed"]) {
         final dx = (task["x"] as double) - userX;
         final dy = (task["y"] as double) - userY;
         final dist = sqrt(dx * dx + dy * dy);
+
+        // Do not auto-complete here! Only optionally show UI
         if (dist < proximityThreshold) {
-          if (mounted) {
-            setState(() {
-              task["completed"] = true;
-              completedBoothNames.add(task["name"]);
-              totalPoints += (task["points"] as int);
-              // Update global points.
-              globalTotalPoints = totalPoints;
-              rewardText = "+${task["points"]} points!";
-              showReward = true;
-            });
-          }
-          _animationController.forward(from: 0);
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            if (mounted) {
-              setState(() => showReward = false);
-            }
-          });
+          debugPrint("ℹ️ Nearby booth: ${task["name"]}, but not marking completed.");
         }
       }
     }
@@ -304,9 +290,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               selectedBoothName: task["name"],
               onArrival: (arrived) {
                 // Only update completion and points if the task wasn't already completed
-                if (arrived && !task["completed"]) {
+                if (arrived && !completedBoothNames.contains(task["name"])) {
                   setState(() {
                     task["completed"] = true;
+                    completedBoothNames.add(task["name"]);
                     totalPoints += (task["points"] as int);
                     globalTotalPoints = totalPoints;
                     rewardText = "+${task["points"]} points!";
