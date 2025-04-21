@@ -209,11 +209,31 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
   // Initialize with default hardcoded values if backend config fails
   void _initializeDefaultConfig() {
     setState(() {
+      gridCellSize = 40;
+      metersToGridFactor = 1.0;
+      txPower = -59;
       beaconIdToPosition = {
-        "14j906Gy": [500, 500],
-        "14jr08Ef": [700, 500],
-        "14j606Gv": [500, 700],
-      };
+      "14b00739" : [5  * gridCellSize, 18 * gridCellSize],
+      "14b6072G" : [6  * gridCellSize, 15 * gridCellSize],
+      "14b7072H" : [9  * gridCellSize, 7  * gridCellSize],
+      "14bC072N" : [8  * gridCellSize, 19 * gridCellSize],
+      "14bE072Q" : [9  * gridCellSize, 23 * gridCellSize],
+      "14bF072R" : [13 * gridCellSize, 23 * gridCellSize],
+      "14bK072V" : [15 * gridCellSize, 25 * gridCellSize],
+      "14bM072X" : [19 * gridCellSize, 23 * gridCellSize],
+      "14j006gQ" : [22 * gridCellSize, 23 * gridCellSize],
+      "14j606Gv": [23 * gridCellSize, 20 * gridCellSize],
+      "14j706Gw": [26 * gridCellSize, 18 * gridCellSize],
+      "14j706gX": [25 * gridCellSize, 15 * gridCellSize],
+      "14j906Gy": [27 * gridCellSize, 12 * gridCellSize],
+      "14jd06i0": [24 * gridCellSize, 9  * gridCellSize],
+      "14jj06i6": [24 * gridCellSize, 6  * gridCellSize],
+      "14jr06gF": [20 * gridCellSize, 6  * gridCellSize],
+      "14jr08Ef": [19 * gridCellSize, 3  * gridCellSize],
+      "14js06gG": [17 * gridCellSize, 4  * gridCellSize],
+      "14jv06gK": [13 * gridCellSize, 3  * gridCellSize],
+      "14jw08Ek": [11 * gridCellSize, 4  * gridCellSize],
+    };
 
       beacon_mac_map = {
         "14b00739": "00:FA:B6:2F:50:8C",
@@ -243,8 +263,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         mac_to_id_map[mac] = id;
       });
 
-      metersToGridFactor = 2.0; // Default value
-      txPower = -59; // Default reference power at 1m
 
       isConfigLoaded = true;
       debugPrint("⚠️ Using default configuration");
@@ -414,8 +432,8 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
     if (userLocation.isEmpty || selectedBooth.isEmpty) return;
 
     // 1) Convert to grid coords & capture start
-    final gridX = (currentPosition.x / gridCellSize).round();
-    final gridY = (currentPosition.y / gridCellSize).round();
+    final gridX = (currentPosition.x / gridCellSize).floor();
+    final gridY = (currentPosition.y / gridCellSize).floor();
     final start = [gridX, gridY];
 
     // 2) Fetch the backend path

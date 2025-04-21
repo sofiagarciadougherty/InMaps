@@ -139,19 +139,46 @@ BEACON_MAC_MAP = {
     "14jv06gK": "00:FA:B6:31:02:C9",
     "14jw08Ek": "00:FA:B6:30:C2:E2"
 }
+NAME_TO_ID = {
+    "Beacon 1":  "14b00739",
+    "Beacon 2":  "14b6072G",
+    "Beacon 3":  "14b7072H",
+    "Beacon 4":  "14bC072N",
+    "Beacon 5":  "14bE072Q",
+    "Beacon 6":  "14bF072R",
+    "Beacon 7":  "14bK072V",
+    "Beacon 8":  "14bM072X",
+    "Beacon 9":  "14j006gQ",
+    "Beacon 10": "14j606Gv",
+    "Beacon 11": "14j706Gw",
+    "Beacon 12": "14j706gX",
+    "Beacon 13": "14j906Gy",
+    "Beacon 14": "14jd06i0",
+    "Beacon 15": "14jj06i6",
+    "Beacon 16": "14jr06gF",
+    "Beacon 17": "14jr08Ef",
+    "Beacon 18": "14js06gG",
+    "Beacon 19": "14jv06gK",
+    "Beacon 20": "14jw08Ek",
+}
 
 # Create reverse mapping (MAC to ID)
 MAC_TO_ID_MAP = {mac: id for id, mac in BEACON_MAC_MAP.items()}
 
 # Beacon positions (using iOS IDs for consistency with frontend)
-BEACON_POSITIONS = {
-    b["name"]: (
+BEACON_POSITIONS = {}
+for b in booth_data:
+    if b["type"] != "beacon":
+        continue
+    ascii_id = NAME_TO_ID.get(b["name"])
+    if not ascii_id:
+        continue
+    BEACON_POSITIONS[ascii_id] = (
         int(b["center"]["x"] // CELL_SIZE),
         int(b["center"]["y"] // CELL_SIZE),
     )
-    for b in booth_data
-    if b["type"] == "beacon"
-}
+
+
 
 # ====== Models ======
 class BLEReading(BaseModel):
