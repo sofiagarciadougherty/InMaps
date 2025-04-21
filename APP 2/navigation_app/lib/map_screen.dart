@@ -163,7 +163,7 @@ class _MapScreenState extends State<MapScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "from_": [xGrid, yGrid],
-          "to": selectedBoothName, 
+          "to": selectedBoothName,
         }),
       );
 

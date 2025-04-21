@@ -25,9 +25,9 @@ def load_booth_data(csv_path):
 
     for _, row in df.iterrows():
         coord_cell = row["Start_X"]
-        if not isinstance(coord_cell, str):
+        """ if not isinstance(coord_cell, str):
             print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
-            continue
+            continue """
         try:
             center = ast.literal_eval(row["Center Coordinates"])
         except Exception as e:
