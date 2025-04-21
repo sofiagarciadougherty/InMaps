@@ -35,6 +35,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   double maxY = 0;
   List<int> lastGridPosition = [-1, -1];
   List<List<dynamic>> currentPath = [];
+  double manualRotationAngle = 0.0;
+
 
   final TransformationController _transformationController = TransformationController();
   late AnimationController _moveController;
@@ -333,11 +335,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   double _getMapRotationAngle() {
-    // Extract current rotation from controller
-    return _transformationController.value.getMaxScaleOnAxis() == 0
-        ? 0.0
-        : atan2(_transformationController.value.row1.x, _transformationController.value.row0.x);
-  }
+  return manualRotationAngle;
+}
+
 
   void _centerOnUser() {
     final user = Offset(basePosition.dx + imuOffset.x, basePosition.dy + imuOffset.y);
@@ -369,6 +369,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _removeArrivalOverlay();
     super.dispose();
   }
+  Offset _rotatePoint(Offset point, Offset center, double angle) {
+    final dx = point.dx - center.dx;
+    final dy = point.dy - center.dy;
+    final rotatedX = dx * cos(angle) - dy * sin(angle);
+    final rotatedY = dx * sin(angle) + dy * cos(angle);
+    return Offset(rotatedX + center.dx, rotatedY + center.dy);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -383,74 +390,93 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Stack(
-        children: [
-          InteractiveViewer(
-            transformationController: _transformationController,
-            minScale: 0.2,
-            maxScale: 5.0,
-            boundaryMargin: const EdgeInsets.all(1000),
-            panEnabled: true,
-            scaleEnabled: true,
-            clipBehavior: Clip.none,
-            constrained: false,
-            child: Container(
-              width: maxX,
-              height: maxY,
-              child: Stack(
-                children: [
-                  CustomPaint(
-                    size: Size(maxX, maxY),
-                    painter: MapPainter(
-                        elements,
-                        currentPath,
-                        Offset(basePosition.dx, basePosition.dy),
-                        currentHeading,
-                        animatedOffset,
-                        _getMapRotationAngle()
+              children: [
+                InteractiveViewer(
+                  transformationController: _transformationController,
+                  minScale: 0.2,
+                  maxScale: 5.0,
+                  boundaryMargin: const EdgeInsets.all(1000),
+                  panEnabled: true,
+                  scaleEnabled: true,
+                  clipBehavior: Clip.none,
+                  constrained: false,
+                  onInteractionUpdate: (details) {
+                    if (details.pointerCount == 2) {
+                      final scale = _transformationController.value.getMaxScaleOnAxis();
+                      final dampeningFactor = 0.02 / scale.clamp(1.0, 5.0);
+                      setState(() {
+                        manualRotationAngle += details.rotation * dampeningFactor;  
+                        manualRotationAngle = manualRotationAngle.clamp(-pi, pi);
+                      });
+                    }
+                  },
+                  child: Container(
+                    width: maxX,
+                    height: maxY,
+                    child: Stack(
+                      children: [
+                        CustomPaint(
+                          size: Size(maxX, maxY),
+                          painter: MapPainter(
+                            elements,
+                            currentPath,
+                            Offset(basePosition.dx, basePosition.dy),
+                            currentHeading,
+                            animatedOffset,
+                            manualRotationAngle,
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onTapDown: (details) {
+                              // 1. Get tap position
+                              Offset tapPos = details.localPosition;
+
+                              // 2. Calculate the center point (for rotation reference)
+                              final userCenter = Offset(basePosition.dx + animatedOffset.dx, basePosition.dy + animatedOffset.dy);
+
+                              // 3. Undo the map rotation for the tap
+                              final rotatedTapPos = _rotatePoint(tapPos, userCenter, -manualRotationAngle);
+
+                              // 4. Now check booths normally using rotatedTapPos!
+                              for (var el in elements) {
+                                if (el["type"].toString().toLowerCase() != "booth") continue;
+
+                                final start = el["start"];
+                                final end = el["end"];
+                                final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                                final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                                final boothRect = Rect.fromPoints(startOffset, endOffset);
+
+                                if (boothRect.contains(rotatedTapPos)) {
+                                  print("🎯 Correct booth tapped: ${el['name']}");
+                                  _showBoothDescription(el);
+                                  return;
+                                }
+                              }
+                              _removeOverlay();
+                            },
+
+                            child: Container(color: Colors.transparent),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onTapDown: (details) {
-                        final localPos = details.localPosition;  // ← raw local screen position
-
-                        for (var el in elements) {
-                          if (el["type"].toString().toLowerCase() != "booth") continue;
-
-                          final start = el["start"];
-                          final end = el["end"];
-                          final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
-                          final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-                          final boothRect = Rect.fromPoints(startOffset, endOffset);
-
-                          if (boothRect.contains(localPos)) {
-                            print("🎯 Correct booth tapped: ${el['name']}");
-                            _showBoothDescription(el);
-                            return;
-                          }
-                        }
-
-                        _removeOverlay();
-                      },
-                        child: Container(color: Colors.transparent),
-                    ),
+                ),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: FloatingActionButton(
+                    onPressed: _centerOnUser,
+                    backgroundColor: const Color(0xFF008C9E),
+                    child: const Icon(Icons.my_location, color: Colors.white),
+                    tooltip: 'Center on my location',
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: FloatingActionButton(
-              onPressed: _centerOnUser,
-              backgroundColor: const Color(0xFF008C9E),
-              child: const Icon(Icons.my_location, color: Colors.white),
-              tooltip: 'Center on my location',
-            ),
-          ),
-        ],
-      ),
+
     );
   }
 }
