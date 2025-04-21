@@ -24,38 +24,45 @@ def load_booth_data(csv_path):
     print("📦 Loading booths from CSV...")
 
     for _, row in df.iterrows():
-        coord_cell = row["Start_X"]
-        """ if not isinstance(coord_cell, str):
-            print("⚠️ Skipping row — Coordinates is not a string:", coord_cell)
-            continue """
+        # 1) Parse the numeric corners
+        start_x = float(row["Start_X"])
+        start_y = float(row["Start_Y"])
+        end_x   = float(row["End_X"])
+        end_y   = float(row["End_Y"])
+
+        # 2) Parse the center (should be a string like "(6.40, 28.81)")
         try:
             center = ast.literal_eval(row["Center Coordinates"])
-        except Exception as e:
-            print(f"⚠️ Skipping row — JSON parsing failed: {e}")
-            continue
+            center_x, center_y = center
+        except Exception:
+            # fallback: compute it yourself if parsing fails
+            center_x = (start_x + end_x) / 2
+            center_y = (start_y + end_y) / 2
 
-        if "blocker" in row["Name"].lower():
+        # 3) Classify the booth type
+        name = row["Name"].strip()
+        if "blocker" in name.lower():
             booth_type = "blocker"
-        elif "booth" in row["Name"].lower():
+        elif "booth" in name.lower():
             booth_type = "booth"
         else:
-            booth_type = "other"  # default/fallback for stuff like bathroom
-
-        name = row["Name"].strip()
+            booth_type = "other"
 
         print(f"✅ Loaded booth: {name} ({booth_type})")
 
+        # 4) Now you can safely use start_x, start_y, etc.
         booths.append({
-            "booth_id": int(row["ID"]),
-            "name":      row["Name"],
-            "description":      row["Description"],
-            "type": booth_type,
+            "booth_id":   int(row["ID"]),
+            "name":       name,
+            "description":row["Description"],
+            "type":       booth_type,
             "area": {
                 "start": {"x": start_x, "y": start_y},
                 "end":   {"x": end_x,   "y": end_y},
             },
             "center": {"x": center_x, "y": center_y}
         })
+
     print(f"📊 Total booths loaded: {len(booths)}")
     return booths
 
