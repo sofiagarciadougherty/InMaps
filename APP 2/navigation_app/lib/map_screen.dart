@@ -5,9 +5,9 @@ import 'dart:math';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:async';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'dart:ui' as ui;
 import './utils/vector2d.dart';
-
-
+import './utils/custom_matrix_utils.dart';
 
 class MapScreen extends StatefulWidget {
   final List<List<dynamic>> path;
@@ -38,10 +38,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   List<List<dynamic>> currentPath = [];
   double _userRotation = 0.0;
   double _manualRotation = 0.0;
-  double _initialScale = 1.0;
-
-
-
+  OverlayEntry? _overlayEntry;
 
   final TransformationController _transformationController = TransformationController();
 
@@ -60,13 +57,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Offset basePosition = Offset.zero;
   static const double cellSize = 40.0;
-  
-  // Add variables for booth tap handling
-  dynamic tappedBooth = null;
-  OverlayEntry? _overlayEntry;
-
-  bool hasNotifiedArrival = false;
-  OverlayEntry? _arrivalOverlay;
 
   void _centerOnUser() {
     final userPosition = basePosition + Offset(imuOffset.x, imuOffset.y);
@@ -83,19 +73,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   void _centerOnUserAfterMove() {
     final userPosition = basePosition + Offset(imuOffset.x, imuOffset.y);
-    final double currentScale = _transformationController.value.getMaxScaleOnAxis();
-
+    const double zoomScale = 2.0;
     final size = MediaQuery.of(context).size;
     final translation = Matrix4.identity()
-      ..scale(currentScale) // 🛠️ keep the current zoom
+      ..scale(zoomScale)
       ..translate(
-        -userPosition.dx + size.width / (2 * currentScale),
-        -userPosition.dy + size.height / (2 * currentScale),
+        -userPosition.dx + size.width / (2 * zoomScale),
+        -userPosition.dy + size.height / (2 * zoomScale),
       );
     _transformationController.value = translation;
   }
 
-
+  void _checkProximity() {
+    if (selectedBoothName.isEmpty) return;
+    
+    final userX = basePosition.dx + imuOffset.x;
+    final userY = basePosition.dy + imuOffset.y;
+    
+    final targetBooth = elements.firstWhere(
+      (el) => el["name"] == selectedBoothName,
+      orElse: () => null,
+    );
+    
+    if (targetBooth != null) {
+      final start = targetBooth["start"];
+      final end = targetBooth["end"];
+      final boothCenterX = (start["x"] + end["x"]) / 2;
+      final boothCenterY = (start["y"] + end["y"]) / 2;
+      
+      final dx = boothCenterX - userX;
+      final dy = boothCenterY - userY;
+      final distance = sqrt(dx * dx + dy * dy);
+      
+      const proximityThreshold = 100.0;
+      if (distance < proximityThreshold) {
+        widget.onArrival?.call(true);
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -130,10 +145,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (magnitude > 12) {
         stepCount++;
         final stepDistanceInPixels = 0.7 * cellSize;
-        final correctedHeading = headingRadians - _manualRotation;
         final newOffset = Offset(
-          imuOffset.x + cos(correctedHeading) * stepDistanceInPixels,
-          imuOffset.y + sin(correctedHeading) * stepDistanceInPixels,
+          imuOffset.x + cos(headingRadians) * stepDistanceInPixels,
+          imuOffset.y + sin(headingRadians) * stepDistanceInPixels,
         );
 
         _moveAnimation = Tween<Offset>(
@@ -148,17 +162,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
         imuOffset = Vector2D(newOffset.dx, newOffset.dy);
         updatePath();
-<<<<<<< Updated upstream
-        _checkArrival();
-      }
-    });
-=======
         _centerOnUserAfterMove();
+        _checkProximity();
       }
     });
 
     updatePath();
->>>>>>> Stashed changes
   }
 
   Future<void> fetchMapData() async {
@@ -190,19 +199,41 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-<<<<<<< Updated upstream
-  // Add method to show booth description overlay
+  Future<void> updatePath() async {
+    final xPixels = basePosition.dx + imuOffset.x;
+    final yPixels = basePosition.dy + imuOffset.y;
+
+    final int xGrid = (xPixels / cellSize).floor();
+    final int yGrid = (yPixels / cellSize).floor();
+
+    if (xGrid == lastGridPosition[0] && yGrid == lastGridPosition[1]) return;
+
+    lastGridPosition = [xGrid, yGrid];
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://inmaps.onrender.com/path'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({"from_": [xGrid, yGrid], "to": selectedBoothName}),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          currentPath = List<List<dynamic>>.from(data['path']);
+        });
+      }
+    } catch (e) {
+      print('❌ Path fetch failed: $e');
+    }
+  }
+
   void _showBoothDescription(dynamic booth, Offset position) {
-    // Remove any existing overlay
     _removeOverlay();
     
-    // Get the screen size
     final screenSize = MediaQuery.of(context).size;
     
-    // Create the overlay entry
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        // Center the overlay on the screen
         left: (screenSize.width - 300) / 2,
         top: (screenSize.height - 150) / 2,
         child: Material(
@@ -266,253 +297,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       ),
     );
     
-    // Insert the overlay
     Overlay.of(context).insert(_overlayEntry!);
   }
   
-  // Add method to remove the overlay
   void _removeOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
   }
-
-  void _checkArrival() {
-    if (hasNotifiedArrival) return;
-
-    final userCenter = Offset(
-      basePosition.dx + imuOffset.x,
-      basePosition.dy + imuOffset.y,
-    );
-
-    // Find the target booth
-    for (var el in elements) {
-      if (el["type"].toString().toLowerCase() == "booth" && 
-          el["name"] == widget.selectedBoothName) {
-        final start = el["start"];
-        final end = el["end"];
-        final boothCenter = Offset(
-          (start["x"] + end["x"]) / 2,
-          (start["y"] + end["y"]) / 2,
-        );
-
-        // Calculate distance to booth
-        final dx = boothCenter.dx - userCenter.dx;
-        final dy = boothCenter.dy - userCenter.dy;
-        final distance = sqrt(dx * dx + dy * dy);
-
-        // If within 0.5 meters (20 pixels), notify arrival
-        if (distance < 20) {
-          hasNotifiedArrival = true;
-          _showArrivalNotification();
-          // Notify the game screen about arrival
-          widget.onArrival?.call(true);
-          break;
-        }
-      }
-    }
-  }
-
-  void _showArrivalNotification() {
-    _removeArrivalOverlay();
-    
-    _arrivalOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        top: MediaQuery.of(context).size.height * 0.1,
-        left: 0,
-        right: 0,
-        child: Material(
-          color: Colors.transparent,
-          child: Center(
-            child: TweenAnimationBuilder<double>(
-              duration: const Duration(milliseconds: 500),
-              tween: Tween(begin: 0.0, end: 1.0),
-              builder: (context, value, child) {
-                return Transform.scale(
-                  scale: value,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.green.shade400,
-                          Colors.green.shade600,
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.green.withOpacity(0.3),
-                          blurRadius: 12,
-                          spreadRadius: 2,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.check_circle_outline,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          "You've arrived at ${widget.selectedBoothName}!",
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-    
-    Overlay.of(context).insert(_arrivalOverlay!);
-    
-    // Remove the notification after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      _removeArrivalOverlay();
-    });
-  }
-
-  void _removeArrivalOverlay() {
-    if (_arrivalOverlay != null) {
-      _arrivalOverlay!.remove();
-      _arrivalOverlay = null;
-    }
-  }
-
-  @override
-  void dispose() {
-    _headingSub?.cancel();
-    _accelSub?.cancel();
-    _removeOverlay();
-    _removeArrivalOverlay();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Map View")),
-      body: elements.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                InteractiveViewer(
-                  minScale: 0.2,
-                  maxScale: 5.0,
-                  boundaryMargin: const EdgeInsets.all(100),
-                  child: Container(
-                    width: maxX,
-                    height: maxY,
-                    color: Colors.white,
-                    child: CustomPaint(
-                      size: Size(maxX, maxY),
-                      painter: MapPainter(
-                        elements,
-                        currentPath,
-                        basePosition,
-                        currentHeading,
-                        imuOffset,
-                      ),
-                    ),
-                  ),
-                ),
-                // Add a transparent layer for booth taps
-                Positioned.fill(
-                  child: GestureDetector(
-                    onTapDown: (details) {
-                      // Check if a booth was tapped
-                      bool boothTapped = false;
-                      for (var el in elements) {
-                        // Skip elements with type "beacon"
-                        if (el["type"].toString().toLowerCase() == "beacon") {
-                          continue;
-                        }
-                        
-                        final start = el["start"];
-                        final end = el["end"];
-                        final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
-                        final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-                        final rect = Rect.fromPoints(startOffset, endOffset);
-                        
-                        if (rect.contains(details.localPosition)) {
-                          boothTapped = true;
-                          // Calculate the center of the booth for reference
-                          final boothCenter = Offset(
-                            (start["x"] + end["x"]) / 2,
-                            (start["y"] + end["y"]) / 2,
-                          );
-                          _showBoothDescription(el, boothCenter);
-                          break;
-                        }
-                      }
-                      
-                      // If no booth was tapped and overlay is showing, dismiss it
-                      if (!boothTapped && _overlayEntry != null) {
-                        _removeOverlay();
-                      }
-                    },
-                    child: Container(
-                      color: Colors.transparent,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-=======
->>>>>>> Stashed changes
-  Future<void> updatePath() async {
-    final xPixels = basePosition.dx + imuOffset.x;
-    final yPixels = basePosition.dy + imuOffset.y;
-
-    final int xGrid = (xPixels / cellSize).floor();
-    final int yGrid = (yPixels / cellSize).floor();
-
-    if (xGrid == lastGridPosition[0] && yGrid == lastGridPosition[1]) return;
-
-    lastGridPosition = [xGrid, yGrid];
-
-    try {
-      final response = await http.post(
-        Uri.parse('https://inmaps.onrender.com/path'),
-        headers: {'Content-Type': 'application/json'},
-<<<<<<< Updated upstream
-        body: jsonEncode({
-          "from_": [xGrid, yGrid],
-          "to": selectedBoothName,
-        }),
-=======
-        body: jsonEncode({"from_": [xGrid, yGrid], "to": selectedBoothName}),
->>>>>>> Stashed changes
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          currentPath = List<List<dynamic>>.from(data['path']);
-        });
-      }
-    } catch (e) {
-      print('❌ Path fetch failed: $e');
-    }
-  }
-<<<<<<< Updated upstream
-=======
 
   @override
   void dispose() {
@@ -520,111 +311,115 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _transformationController.dispose();
     _headingSub?.cancel();
     _accelSub?.cancel();
+    _removeOverlay();
     super.dispose();
   }
 
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    backgroundColor: Colors.white,
-    appBar: AppBar(
-      backgroundColor: Colors.white,
-      elevation: 0,
-      centerTitle: false,
-      title: Row(
-        children: [
-          Image.asset(
-            'assets/images/logo.png',
-            height: 45,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Image.asset('assets/images/logo.png'),
+        ),
+        title: const Text("Map View"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.my_location),
+            onPressed: _centerOnUser,
+            tooltip: 'Center on my location',
           ),
         ],
       ),
-      iconTheme: const IconThemeData(color: Colors.black87),
-    ),
-    body: elements.isEmpty
-        ? const Center(child: CircularProgressIndicator())
-        : Stack(
-            children: [
-              Container(
-                color: Colors.white,
-                child: InteractiveViewer(
-                  transformationController: _transformationController,
-                  minScale: 0.2,
-                  maxScale: 5.0,
-                  boundaryMargin: const EdgeInsets.all(1000),
-                  panEnabled: true,
-                  scaleEnabled: true,
-                  clipBehavior: Clip.none,
-                  constrained: false,
-                  onInteractionStart: (details) {
-                    _initialScale = _transformationController.value.getMaxScaleOnAxis();
-                  },
-                  onInteractionUpdate: (details) {
+      body: elements.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
+              children: [
+                GestureDetector(
+                  onScaleUpdate: (details) {
                     if (details.pointerCount >= 2) {
-                      final rotationDelta = details.rotation;
-                      final scaleDelta = details.scale;
-
-                      if (rotationDelta.abs() > 0.7) {
-                        double limitedRotationDelta = rotationDelta.clamp(-0.05, 0.05);
+                      print("🔥 Scale detected with ${details.pointerCount} fingers, rotation=${details.rotation}");
+                      double rotationDelta = details.rotation;
+                      if (rotationDelta.abs() > 0.14) {
                         setState(() {
-                          _manualRotation += limitedRotationDelta;
+                          _manualRotation += rotationDelta*0.1;
+                          print("🌀 MUCH smoother rotation: $_manualRotation radians (${_manualRotation * 180 / pi} degrees)");
                         });
                       }
-
-                      double currentScale = _transformationController.value.getMaxScaleOnAxis();
-                      double desiredScale = _initialScale * scaleDelta;
-                      double resistanceFactor = 0.1;
-                      double adjustedScale = currentScale + (desiredScale - currentScale) * resistanceFactor;
-
-                      Matrix4 newTransform = Matrix4.identity()
-                        ..scale(adjustedScale)
-                        ..translate(
-                          _transformationController.value.row0.w / adjustedScale,
-                          _transformationController.value.row1.w / adjustedScale,
-                        );
-
-                      _transformationController.value = newTransform;
+                    }
+                    if (_manualRotation.abs() < 0.05) { 
+                      setState(() {
+                        _manualRotation = 0.0;
+                        print("🔄 Snapped back to north");
+                      });
                     }
                   },
-                  child: Container(
-                    width: maxX,
-                    height: maxY,
-                    color: Colors.white,
-                    child: CustomPaint(
-                      size: Size(maxX, maxY),
-                      painter: MapPainter(
-                        elements,
-                        currentPath,
-                        basePosition,
-                        currentHeading,
-                        animatedOffset,
-                        _manualRotation,
+                  onTapUp: (details) {
+                    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+                    final Matrix4 transform = _transformationController.value.clone();
+                    final Matrix4 inverseTransform = Matrix4.inverted(transform);
+                    final Offset localPosition = CustomMatrixUtils.transformPoint(
+                      inverseTransform,
+                      details.localPosition,
+                    );
+
+                    for (var element in elements) {
+                      final start = element["start"];
+                      final end = element["end"];
+                      final rect = Rect.fromPoints(
+                        Offset(start["x"].toDouble(), start["y"].toDouble()),
+                        Offset(end["x"].toDouble(), end["y"].toDouble()),
+                      );
+
+                      if (rect.contains(localPosition)) {
+                        _showBoothDescription(element, details.globalPosition);
+                        break;
+                      }
+                    }
+                  },
+                  child: InteractiveViewer(
+                    transformationController: _transformationController,
+                    minScale: 0.2,
+                    maxScale: 5.0,
+                    boundaryMargin: const EdgeInsets.all(1000),
+                    panEnabled: true,
+                    scaleEnabled: true,
+                    clipBehavior: Clip.none,
+                    constrained: false,
+                    child: Container(
+                      width: maxX,
+                      height: maxY,
+                      color: Colors.white,
+                      child: CustomPaint(
+                        size: Size(maxX, maxY),
+                        painter: MapPainter(
+                          elements,
+                          currentPath,
+                          basePosition,
+                          currentHeading,
+                          animatedOffset,
+                          _manualRotation,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                right: 16,
-                bottom: 16,
-                child: FloatingActionButton(
-                  onPressed: _centerOnUser,
-                  backgroundColor: const Color(0xFF008C9E),
-                  child: const Icon(
-                    Icons.my_location,
-                    color: Colors.white,
-                  ),
-                  elevation: 4,
-                  tooltip: 'Center on my location',
-                ),
-              ),
-            ],
-          ),
-  );
-}
->>>>>>> Stashed changes
-}
 
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: FloatingActionButton(
+                    onPressed: _centerOnUser,
+                    child: const Icon(Icons.my_location),
+                    tooltip: 'Center on my location',
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
 
 class MapPainter extends CustomPainter {
   final List<dynamic> elements;
@@ -647,54 +442,34 @@ class MapPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Fill the entire canvas with white first
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = Colors.white);
+    print("🖌️ Repainting with manualRotation = $manualRotation radians (${manualRotation * 180 / pi} degrees)");
+
+    final backgroundPaint = Paint()..color = const Color(0xFFF9F9F9);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), backgroundPaint);
 
     final userCenter = basePosition + animatedOffset;
 
-    // ROTATE booths and path
     canvas.save();
     canvas.translate(userCenter.dx, userCenter.dy);
     canvas.rotate(manualRotation);
     canvas.translate(-userCenter.dx, -userCenter.dy);
 
-    final paintBooth = Paint()..color = const Color(0xFF008C9E).withOpacity(0.15);
-    final paintBlocker = Paint()..color = Colors.red.withOpacity(0.2);
-    final paintOther = Paint()..color = Colors.blueGrey.withOpacity(0.1);
+    final paintBooth = Paint()..color = Colors.green.withOpacity(0.7);
+    final paintBlocker = Paint()..color = Colors.red.withOpacity(0.6);
+    final paintOther = Paint()..color = Colors.blueGrey.withOpacity(0.5);
     final paintPathGlow = Paint()
-      ..color = const Color(0xFF008C9E).withOpacity(0.3)
+      ..color = Colors.white.withOpacity(0.5)
       ..strokeWidth = 6.0
       ..strokeCap = StrokeCap.round;
     final paintPath = Paint()
-      ..color = const Color(0xFF008C9E)
+      ..color = Colors.blue
       ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round;
     final paintUserBorder = Paint()..color = Colors.white;
-    final paintUser = Paint()..color = const Color(0xFF008C9E);
-
-    // --- Draw booth shadows first ---
-    for (var el in elements) {
-      final start = el["start"];
-      final end = el["end"];
-      final type = el["type"].toString().toLowerCase();
-      if (type == "booth") {
-        final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
-        final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-        
-        // Draw shadow
-        final shadowPaint = Paint()
-          ..color = Colors.black.withOpacity(0.1)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-        
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromPoints(startOffset, endOffset).translate(2, 2),
-            const Radius.circular(12)
-          ),
-          shadowPaint,
-        );
-      }
-    }
+    final paintUser = Paint()..color = Colors.blue;
+    final paintCone = Paint()
+      ..color = Colors.blue.withOpacity(0.15)
+      ..style = PaintingStyle.fill;
 
     // --- Draw booths, blockers, others ---
     for (var el in elements) {
@@ -706,66 +481,70 @@ class MapPainter extends CustomPainter {
 
       Paint paint;
       if (type == "blocker") paint = paintBlocker;
-      else if (type == "booth") {
-        // For booths, add a gradient effect
-        paint = Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF008C9E).withOpacity(0.2),
-              const Color(0xFF008C9E).withOpacity(0.3),
-            ],
-          ).createShader(Rect.fromPoints(startOffset, endOffset));
-      }
+      else if (type == "booth") paint = paintBooth;
       else paint = paintOther;
 
       canvas.drawRRect(
         RRect.fromRectAndRadius(Rect.fromPoints(startOffset, endOffset), const Radius.circular(12)),
         paint,
       );
-
-      // Add a subtle border for booths
-      if (type == "booth") {
-        final borderPaint = Paint()
-          ..color = const Color(0xFF008C9E).withOpacity(0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-        
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(Rect.fromPoints(startOffset, endOffset), const Radius.circular(12)),
-          borderPaint,
-        );
-      }
     }
 
     // --- Draw path ---
     if (path.isNotEmpty) {
-      for (int i = 0; i < path.length - 1; i++) {
-        final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
-        final p2 = Offset((path[i + 1][0] + 0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
-        canvas.drawLine(p1, p2, paintPathGlow);
-        canvas.drawLine(p1, p2, paintPath);
+      final pathPaint = Paint()
+        ..color = Colors.blue
+        ..strokeWidth = 3.0
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+
+      final pathGlowPaint = Paint()
+        ..color = Colors.white.withOpacity(0.5)
+        ..strokeWidth = 6.0
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+
+      final pathPoints = path.map((point) => 
+        Offset((point[0] + 0.5) * cellSize, (point[1] + 0.5) * cellSize)
+      ).toList();
+
+      if (pathPoints.length >= 2) {
+        // Draw path segments
+        for (int i = 0; i < pathPoints.length - 1; i++) {
+          // Draw glow effect
+          canvas.drawLine(pathPoints[i], pathPoints[i + 1], pathGlowPaint);
+          // Draw actual path
+          canvas.drawLine(pathPoints[i], pathPoints[i + 1], pathPaint);
+        }
       }
     }
 
-    // --- Draw user (circle) ---
+    // --- Draw user ---
     canvas.drawCircle(userCenter, 10, paintUserBorder);
     canvas.drawCircle(userCenter, 6, paintUser);
 
-    // --- Draw booth labels ---
+    // --- Draw cone ---
+    const double coneLength = 80.0;
+    const double coneAngle = pi / 6;
+    final headingRadians = headingDegrees * pi / 180;
+    final p1 = userCenter + Offset(cos(headingRadians - coneAngle), sin(headingRadians - coneAngle)) * coneLength;
+    final p2 = userCenter + Offset(cos(headingRadians + coneAngle), sin(headingRadians + coneAngle)) * coneLength;
+
+    final conePath = Path()
+      ..moveTo(userCenter.dx, userCenter.dy)
+      ..lineTo(p1.dx, p1.dy)
+      ..lineTo(p2.dx, p2.dy)
+      ..close();
+    canvas.drawPath(conePath, paintCone);
+
+    // 🔥🔥 Draw booth labels now (inside rotated canvas!)
     final textStyle = const TextStyle(
-      color: Colors.black87,
+      color: Colors.black,
       fontSize: 12,
-      fontWeight: FontWeight.w500,
+      fontWeight: FontWeight.bold,
     );
 
     for (var el in elements) {
-      // Skip elements with type "beacon"
-      if (el["type"].toString().toLowerCase() == "beacon") {
-        continue;
-      }
-      
       final start = el["start"];
       final end = el["end"];
       final name = el["name"];
@@ -774,9 +553,10 @@ class MapPainter extends CustomPainter {
         (start["y"].toDouble() + end["y"].toDouble()) / 2,
       );
 
+      // --- Counter-rotate text ---
       canvas.save();
       canvas.translate(center.dx, center.dy);
-      canvas.rotate(-manualRotation); // counter-rotate booth text
+      canvas.rotate(-manualRotation); // 👈 counter-rotate the label back
       canvas.translate(-center.dx, -center.dy);
 
       final tp = TextPainter(
@@ -789,132 +569,7 @@ class MapPainter extends CustomPainter {
       canvas.restore();
     }
 
-    canvas.restore(); // ✅ STOP rotating now
-
-    // NOW: Draw cone based on real phone heading (no map rotation)
-    const double coneLength = 80.0;
-    const double coneAngle = pi / 6;
-    final headingRadians = headingDegrees * pi / 180;
-    final p1 = userCenter + Offset(cos(headingRadians - coneAngle), sin(headingRadians - coneAngle)) * coneLength;
-    final p2 = userCenter + Offset(cos(headingRadians + coneAngle), sin(headingRadians + coneAngle)) * coneLength;
-
-    final conePath = Path()
-      ..moveTo(userCenter.dx, userCenter.dy)
-      ..lineTo(p1.dx, p1.dy)
-      ..lineTo(p2.dx, p2.dy)
-      ..close();
-
-    final paintCone = Paint()
-      ..color = const Color(0xFF008C9E).withOpacity(0.15)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(conePath, paintCone);
-<<<<<<< Updated upstream
-
-    if (path.isNotEmpty) {
-      for (int i = 0; i < path.length - 1; i++) {
-        final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
-        final p2 = Offset((path[i + 1][0] + 0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
-        canvas.drawLine(p1, p2, paintPath);
-      }
-    }
-
-    // Draw grid on top
-    final gridPaint = Paint()
-      ..color = Colors.black.withOpacity(0.3)
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-
-    final maxGridX = size.width;
-    final maxGridY = size.height;
-
-    // Draw vertical grid lines
-    for (double x = 0; x <= maxGridX; x += cellSize) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, maxGridY),
-        gridPaint,
-      );
-
-      // Add coordinates every 80 pixels (2 meters)
-      if (x % (cellSize * 2) == 0) {
-        final pixels = x.toInt();
-        final meters = (pixels / cellSize).toStringAsFixed(1);
-        TextPainter(
-          text: TextSpan(
-            text: '${pixels}px\n${meters}m',
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              backgroundColor: Color(0xBBFFFFFF),
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-        )
-          ..layout()
-          ..paint(canvas, Offset(x + 2, 2));
-      }
-    }
-
-    // Draw horizontal grid lines
-    for (double y = 0; y <= maxGridY; y += cellSize) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(maxGridX, y),
-        gridPaint,
-      );
-
-      // Add coordinates every 80 pixels (2 meters)
-      if (y % (cellSize * 2) == 0) {
-        final pixels = y.toInt();
-        final meters = (pixels / cellSize).toStringAsFixed(1);
-        TextPainter(
-          text: TextSpan(
-            text: '${pixels}px\n${meters}m',
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              backgroundColor: Color(0xBBFFFFFF),
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.center,
-        )
-          ..layout()
-          ..paint(canvas, Offset(2, y + 2));
-      }
-    }
-
-    // Update user position display to show both pixels and meters
-    final userPixelX = userCenter.dx.toInt();
-    final userPixelY = userCenter.dy.toInt();
-    final userMeterX = (userPixelX / cellSize).toStringAsFixed(1);
-    final userMeterY = (userPixelY / cellSize).toStringAsFixed(1);
-
-    TextPainter(
-      text: TextSpan(
-        text: 'Pixels: ($userPixelX, $userPixelY)\nMeters: (${userMeterX}m, ${userMeterY}m)',
-        style: const TextStyle(
-          color: Colors.blue,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          backgroundColor: Color(0xDDFFFFFF),
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )
-      ..layout()
-      ..paint(canvas, userCenter + const Offset(-40, -35));
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
-}
-=======
+    canvas.restore(); // end overall rotation
   }
 
   @override
@@ -926,4 +581,3 @@ class MapPainter extends CustomPainter {
     oldDelegate.headingDegrees != headingDegrees ||
     oldDelegate.animatedOffset != animatedOffset;
 }
->>>>>>> Stashed changes
