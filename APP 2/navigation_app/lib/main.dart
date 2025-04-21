@@ -386,13 +386,6 @@ class _BLEScannerPageState extends State<BLEScannerPage> {
         setState(() {
           currentPath = List<List<dynamic>>.from(path);
         });
-
-        // ✅ Print the path to the terminal only
-        if (path.isEmpty) {
-          debugPrint("⚠️ No path found to $boothName.");
-        } else {
-          debugPrint("🧭 Path to $boothName: ${path.map((p) => "(${p[0]}, ${p[1]})").join(" → ")}");
-        }
       }
     } catch (e) {
       debugPrint("❌ Error requesting path: $e");

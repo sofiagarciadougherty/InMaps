@@ -93,7 +93,7 @@
     },
     {
       "name": "flutter_compass",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_compass-0.7.0",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_compass-0.8.1",
       "packageUri": "lib/",
       "languageVersion": "2.12"
     },
@@ -105,9 +105,9 @@
     },
     {
       "name": "flutter_lints",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_lints-5.0.0",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/flutter_lints-2.0.3",
       "packageUri": "lib/",
-      "languageVersion": "3.5"
+      "languageVersion": "2.19"
     },
     {
       "name": "flutter_reactive_ble",
@@ -177,9 +177,9 @@
     },
     {
       "name": "lints",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/lints-5.1.1",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/lints-2.1.1",
       "packageUri": "lib/",
-      "languageVersion": "3.6"
+      "languageVersion": "3.0"
     },
     {
       "name": "logging",
@@ -249,13 +249,13 @@
     },
     {
       "name": "sensors_plus",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/sensors_plus-6.1.1",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/sensors_plus-3.1.0",
       "packageUri": "lib/",
-      "languageVersion": "3.3"
+      "languageVersion": "2.18"
     },
     {
       "name": "sensors_plus_platform_interface",
-      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/sensors_plus_platform_interface-2.0.1",
+      "rootUri": "file:///Users/sofiagarcia/.pub-cache/hosted/pub.dev/sensors_plus_platform_interface-1.2.0",
       "packageUri": "lib/",
       "languageVersion": "2.18"
     },
@@ -341,10 +341,10 @@
       "name": "navigation_app",
       "rootUri": "../",
       "packageUri": "lib/",
-      "languageVersion": "3.7"
+      "languageVersion": "3.2"
     }
   ],
-  "generated": "2025-04-21T04:00:39.378990Z",
+  "generated": "2025-04-21T05:10:17.225222Z",
   "generator": "pub",
   "generatorVersion": "3.7.2",
   "flutterRoot": "file:///opt/homebrew/Caskroom/flutter/3.29.2/flutter",

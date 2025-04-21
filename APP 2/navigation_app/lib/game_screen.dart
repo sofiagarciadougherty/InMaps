@@ -164,7 +164,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         debugPrint("DEBUG: Fetched booths: ${booths.length} items.");
         if (mounted) {
           setState(() {
-            // Map tasks and filter only those with category "booth" or "visit"
+            // Map tasks and filter only those with type "booth"
             tasks = booths.map<Map<String, dynamic>>((b) {
               final start = b["start"] ?? {"x": 0, "y": 0};
               final end = b["end"] ?? {"x": 0, "y": 0};
@@ -173,15 +173,14 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               return {
                 "id": b["booth_id"]?.toString() ?? "",
                 "name": b["name"] ?? "Unnamed",
-                // Convert the category to lowercase to ease filtering.
-                "category": b["category"]?.toString().toLowerCase() ?? "visit",
+                "type": b["type"]?.toString().toLowerCase() ?? "",
                 "description": b["description"] ?? "No description available",
                 "x": centerX,
                 "y": centerY,
                 "points": b["points"] ?? 20,
-                "completed": false,
+                "completed": false, // Always start as not completed
               };
-            }).where((t) => t["category"] == "booth" || t["category"] == "visit").toList();
+            }).where((t) => t["type"] == "booth").toList();
             isLoading = false;
             debugPrint("DEBUG: tasks in GameScreen: ${tasks.length} items.");
           });
@@ -296,13 +295,32 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 start[1] * 50.0,
               ),
               selectedBoothName: task["name"],
+              onArrival: (arrived) {
+                if (arrived && !task["completed"]) {
+                  setState(() {
+                    task["completed"] = true;
+                    totalPoints += (task["points"] as int);
+                    globalTotalPoints = totalPoints;
+                    rewardText = "+${task["points"]} points!";
+                    showReward = true;
+                  });
+                  _animationController.forward(from: 0);
+                  Future.delayed(const Duration(milliseconds: 1500), () {
+                    if (mounted) {
+                      setState(() => showReward = false);
+                    }
+                  });
+                }
+              },
             ),
           ),
         ).then((_) {
-          // Reset the task's completed state to allow repeated navigation.
-          setState(() {
-            task["completed"] = false;
-          });
+          // Reset the task's completed state if the user didn't reach the booth
+          if (!task["completed"]) {
+            setState(() {
+              task["completed"] = false;
+            });
+          }
         });
         debugPrint("Navigator.push() called");
       } else {
@@ -316,14 +334,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
-    // Filter tasks to include only "booth" or "visit" category.
-    final boothTasks = tasks.where((t) => t["category"] == "booth" || t["category"] == "visit").toList();
+    // No need to filter tasks here as they're already filtered in _fetchTasks
     return Scaffold(
       appBar: AppBar(title: const Text("Game Mode")),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : boothTasks.isEmpty
-          ? const Center(child: Text("No tasks found."))
+          : tasks.isEmpty
+          ? const Center(child: Text("No booths found."))
           : Stack(
         children: [
           // Main content: header and task list.
@@ -340,16 +357,16 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: const Text(
-                  "Game Tasks:",
+                  "Booths:",
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
               const SizedBox(height: 10),
               Expanded(
                 child: ListView.builder(
-                  itemCount: boothTasks.length,
+                  itemCount: tasks.length,
                   itemBuilder: (context, index) {
-                    final t = boothTasks[index];
+                    final t = tasks[index];
                     return InkWell(
                       onTap: () {
                         _showTaskDialog(t);
@@ -379,7 +396,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                               t["name"],
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                             ),
-                            Text(t["category"] ?? "Visit"),
+                            Text(t["type"] ?? "Booth"),
                             Text(t["completed"] ? "✅ Completed" : "🕓 Pending"),
                             Text("Reward: ${t["points"]} pts"),
                           ],

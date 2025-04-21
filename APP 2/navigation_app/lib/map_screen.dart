@@ -13,6 +13,7 @@ class MapScreen extends StatefulWidget {
   final double headingDegrees;
   final Vector2D initialPosition;
   final String selectedBoothName;
+  final Function(bool)? onArrival;
 
   MapScreen({
     required this.path,
@@ -20,6 +21,7 @@ class MapScreen extends StatefulWidget {
     required this.headingDegrees,
     required this.initialPosition,
     required this.selectedBoothName,
+    this.onArrival,
   });
 
   @override
@@ -48,6 +50,9 @@ class _MapScreenState extends State<MapScreen> {
   // Add variables for booth tap handling
   dynamic tappedBooth = null;
   OverlayEntry? _overlayEntry;
+
+  bool hasNotifiedArrival = false;
+  OverlayEntry? _arrivalOverlay;
 
   @override
   void initState() {
@@ -81,6 +86,7 @@ class _MapScreenState extends State<MapScreen> {
         );
         print("🦶 Step $stepCount → IMU Offset: (${(imuOffset.x/cellSize).toStringAsFixed(2)}m, ${(imuOffset.y/cellSize).toStringAsFixed(2)}m)");
         updatePath();
+        _checkArrival();
       }
     });
   }
@@ -117,12 +123,15 @@ class _MapScreenState extends State<MapScreen> {
     // Remove any existing overlay
     _removeOverlay();
     
+    // Get the screen size
+    final screenSize = MediaQuery.of(context).size;
+    
     // Create the overlay entry
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        // Position the overlay above the booth with some offset
-        left: position.dx - 150,
-        top: position.dy - 120, // Position above the booth
+        // Center the overlay on the screen
+        left: (screenSize.width - 300) / 2,
+        top: (screenSize.height - 150) / 2,
         child: Material(
           elevation: 8.0,
           borderRadius: BorderRadius.circular(8.0),
@@ -194,11 +203,63 @@ class _MapScreenState extends State<MapScreen> {
     _overlayEntry = null;
   }
 
+  void _showArrivalNotification() {
+    _removeArrivalOverlay();
+    
+    _arrivalOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        top: MediaQuery.of(context).size.height * 0.1,
+        left: 0,
+        right: 0,
+        child: Material(
+          color: Colors.transparent,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.green,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Text(
+                "You've arrived at the booth!",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    Overlay.of(context).insert(_arrivalOverlay!);
+    
+    // Remove the notification after 5 seconds
+    Future.delayed(const Duration(seconds: 5), () {
+      _removeArrivalOverlay();
+    });
+  }
+
+  void _removeArrivalOverlay() {
+    _arrivalOverlay?.remove();
+    _arrivalOverlay = null;
+  }
+
   @override
   void dispose() {
     _headingSub?.cancel();
     _accelSub?.cancel();
     _removeOverlay();
+    _removeArrivalOverlay();
     super.dispose();
   }
 
@@ -208,59 +269,69 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(title: const Text("Map View")),
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : GestureDetector(
-              onTapDown: (details) {
-                // Check if a booth was tapped
-                bool boothTapped = false;
-                for (var el in elements) {
-                  // Skip elements with type "beacon"
-                  if (el["type"].toString().toLowerCase() == "beacon") {
-                    continue;
-                  }
-                  
-                  final start = el["start"];
-                  final end = el["end"];
-                  final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
-                  final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-                  final rect = Rect.fromPoints(startOffset, endOffset);
-                  
-                  if (rect.contains(details.localPosition)) {
-                    boothTapped = true;
-                    // Calculate the center of the booth for better positioning of the overlay
-                    final boothCenter = Offset(
-                      (start["x"] + end["x"]) / 2,
-                      (start["y"] + end["y"]) / 2,
-                    );
-                    _showBoothDescription(el, boothCenter);
-                    break;
-                  }
-                }
-                
-                // If no booth was tapped and overlay is showing, dismiss it
-                if (!boothTapped && _overlayEntry != null) {
-                  _removeOverlay();
-                }
-              },
-              child: InteractiveViewer(
-                minScale: 0.2,
-                maxScale: 5.0,
-                boundaryMargin: const EdgeInsets.all(1000),
-                child: Container(
-                  width: maxX,
-                  height: maxY,
-                  color: Colors.white,
-                  child: CustomPaint(
-                    size: Size(maxX, maxY),
-                    painter: MapPainter(
-                      elements,
-                      currentPath,
-                      basePosition,
-                      currentHeading,
-                      imuOffset,
+          : Stack(
+              children: [
+                InteractiveViewer(
+                  minScale: 0.2,
+                  maxScale: 5.0,
+                  boundaryMargin: const EdgeInsets.all(100),
+                  child: Container(
+                    width: maxX,
+                    height: maxY,
+                    color: Colors.white,
+                    child: CustomPaint(
+                      size: Size(maxX, maxY),
+                      painter: MapPainter(
+                        elements,
+                        currentPath,
+                        basePosition,
+                        currentHeading,
+                        imuOffset,
+                      ),
                     ),
                   ),
                 ),
-              ),
+                // Add a transparent layer for booth taps
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTapDown: (details) {
+                      // Check if a booth was tapped
+                      bool boothTapped = false;
+                      for (var el in elements) {
+                        // Skip elements with type "beacon"
+                        if (el["type"].toString().toLowerCase() == "beacon") {
+                          continue;
+                        }
+                        
+                        final start = el["start"];
+                        final end = el["end"];
+                        final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                        final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                        final rect = Rect.fromPoints(startOffset, endOffset);
+                        
+                        if (rect.contains(details.localPosition)) {
+                          boothTapped = true;
+                          // Calculate the center of the booth for reference
+                          final boothCenter = Offset(
+                            (start["x"] + end["x"]) / 2,
+                            (start["y"] + end["y"]) / 2,
+                          );
+                          _showBoothDescription(el, boothCenter);
+                          break;
+                        }
+                      }
+                      
+                      // If no booth was tapped and overlay is showing, dismiss it
+                      if (!boothTapped && _overlayEntry != null) {
+                        _removeOverlay();
+                      }
+                    },
+                    child: Container(
+                      color: Colors.transparent,
+                    ),
+                  ),
+                ),
+              ],
             ),
     );
   }
@@ -302,6 +373,40 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _checkArrival() {
+    if (hasNotifiedArrival) return;
+
+    final userCenter = Offset(
+      basePosition.dx + imuOffset.x,
+      basePosition.dy + imuOffset.y,
+    );
+
+    // Find the target booth
+    for (var el in elements) {
+      if (el["type"].toString().toLowerCase() == "booth" && 
+          el["name"] == widget.selectedBoothName) {
+        final start = el["start"];
+        final end = el["end"];
+        final boothCenter = Offset(
+          (start["x"] + end["x"]) / 2,
+          (start["y"] + end["y"]) / 2,
+        );
+
+        // Calculate distance to booth
+        final dx = boothCenter.dx - userCenter.dx;
+        final dy = boothCenter.dy - userCenter.dy;
+        final distance = sqrt(dx * dx + dy * dy);
+
+        // If within 0.5 meters (20 pixels), notify arrival
+        if (distance < 20) {
+          hasNotifiedArrival = true;
+          _showArrivalNotification();
+          widget.onArrival?.call(true);
+          break;
+        }
+      }
+    }
+  }
 }
 
 
