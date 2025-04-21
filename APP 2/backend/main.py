@@ -9,6 +9,8 @@ import json
 import ast
 import math
 import re
+from collections import deque
+
 
 app = FastAPI()
 
@@ -266,15 +268,18 @@ def get_path(request: PathRequest):
     goal_grid = (goal_x, goal_y)
 
     def find_nearest_free_cell(goal, grid):
-        directions = [
-            (0, 1), (1, 0), (-1, 0), (0, -1),
-            (1, 1), (-1, -1), (1, -1), (-1, 1)
-        ]
-        for dx, dy in directions:
-            nx, ny = goal[0] + dx, goal[1] + dy
-            if 0 <= nx < len(grid[0]) and 0 <= ny < len(grid):
-                if grid[ny][nx] == 1:
-                    return (nx, ny)
+        h, w = len(grid), len(grid[0])
+        q = deque([ (goal[0], goal[1]) ])
+        seen = { (goal[0], goal[1]) }
+        while q:
+            x, y = q.popleft()
+            if grid[y][x] == 1:
+                return (x, y)
+            for dx, dy in ((0,1),(1,0),(-1,0),(0,-1)):
+                nx, ny = x+dx, y+dy
+                if 0 <= nx < w and 0 <= ny < h and (nx,ny) not in seen:
+                    seen.add((nx,ny))
+                    q.append((nx,ny))
         return None
 
     print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
