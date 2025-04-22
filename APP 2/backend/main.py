@@ -263,7 +263,7 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-
+    # Convert booth coordinates to grid coordinates
     goal_x = int(booth["center"]["x"] // CELL_SIZE)
     goal_y = int(booth["center"]["y"] // CELL_SIZE)
     n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
@@ -271,43 +271,38 @@ def get_path(request: PathRequest):
     goal_y = max(0, min(goal_y, n_rows - 1))
     goal_grid = (goal_x, goal_y)
 
-
-    def find_nearest_free_cell(goal, grid):
-        h, w = len(grid), len(grid[0])
-        q = deque([ (goal[0], goal[1]) ])
-        seen = { (goal[0], goal[1]) }
-        while q:
-            x, y = q.popleft()
-            if grid[y][x] == 1:
-                return (x, y)
-            for dx, dy in ((0,1),(1,0),(-1,0),(0,-1)):
-                nx, ny = x+dx, y+dy
-                if 0 <= nx < w and 0 <= ny < h and (nx,ny) not in seen:
-                    seen.add((nx,ny))
-                    q.append((nx,ny))
-        return None
-
     print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
     print("🧱 Sample grid slice at goal:")
     print(np.array(VENUE_GRID)[goal_grid[1]-1:goal_grid[1]+2, goal_grid[0]-1:goal_grid[0]+2])
 
-    # 🔁 If goal is blocked, find a nearby free cell
-    if VENUE_GRID[goal_grid[1]][goal_grid[0]] == 0:
-        print("⚠️ Goal is blocked. Searching for nearby free cell...")
-        new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
-        if not new_goal:
-            print("❌ No valid nearby goal found.")
-            return JSONResponse(
-                content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
-                status_code=404
-            )
-        print(f"✅ Redirected goal to: {new_goal}")
-        goal_grid = new_goal
+    # Check if start point is walkable
+    if not is_inside_area(request.from_[0], request.from_[1], WALKABLE_ZONES):
+        print("❌ Start point is not in a walkable area")
+        return JSONResponse(
+            content={"error": "Start point is not in a walkable area"},
+            status_code=400
+        )
+
+    # Check if goal point is walkable
+    if not is_inside_area(goal_grid[0], goal_grid[1], WALKABLE_ZONES):
+        print("❌ Goal point is not in a walkable area")
+        return JSONResponse(
+            content={"error": "Goal point is not in a walkable area"},
+            status_code=400
+        )
 
     path = a_star(tuple(request.from_), goal_grid)
     print(f"🧭 Final path: {path}")
     if path:
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
+    else:
+        print("❌ No path found between start and goal points")
+        print(f"Start point walkable: {is_inside_area(request.from_[0], request.from_[1], WALKABLE_ZONES)}")
+        print(f"Goal point walkable: {is_inside_area(goal_grid[0], goal_grid[1], WALKABLE_ZONES)}")
+        print(f"Start point stairs: {is_inside_area(request.from_[0], request.from_[1], STAIRS_ZONES)}")
+        print(f"Goal point stairs: {is_inside_area(goal_grid[0], goal_grid[1], STAIRS_ZONES)}")
+        print(f"Start point yellow: {is_inside_area(request.from_[0], request.from_[1], YELLOW_ZONES)}")
+        print(f"Goal point yellow: {is_inside_area(goal_grid[0], goal_grid[1], YELLOW_ZONES)}")
 
     return {"path": path}
 
@@ -456,15 +451,16 @@ def a_star(start, goal):
     open_set = [(heuristic(start, goal), 0, start, [])]
     visited = set()
     
-    # Check if start point is walkable
-    if not is_inside_area(start[0], start[1], WALKABLE_ZONES):
-        print("Start point is not in a walkable area 🚶‍♂️")
-        return []
+    print(f"🎯 Starting A* search from {start} to {goal}")
+    print(f"Initial walkable zones: {WALKABLE_ZONES}")
+    print(f"Initial stairs zones: {STAIRS_ZONES}")
+    print(f"Initial yellow zones: {YELLOW_ZONES}")
 
     while open_set:
         est_total_cost, path_cost, current, path = heappop(open_set)
 
         if current == goal:
+            print(f"✅ Path found! Cost: {path_cost}")
             return path + [current]
 
         if current in visited:
@@ -493,6 +489,7 @@ def a_star(start, goal):
                         path + [current]
                     ))
 
+    print("❌ No path found in A* search")
     return []
 
 @app.get("/")
