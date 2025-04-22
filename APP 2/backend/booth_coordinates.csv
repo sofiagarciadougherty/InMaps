@@ -131,6 +131,7 @@ ID,Type,Name,Description,Coordinates,Center Coordinates
 130,Booth,B43-CREATE-X Team 15,medtnr,"{start:{x:285,y:149},end:{x:302,y:169}}","(294, 159)"
 131,Booth,B45-ME Stack,Kawneer Door Threshold Water Evacuation,"{start:{x:254,y:167},end:{x:271,y:187}}","(263, 177)"
 132,Booth,B47-Team Capy,The Boot: Developing a Automatic Punting Robot for Training,"{start:{x:229,y:182},end:{x:246,y:202}}","(238, 192)"
+133,Other,Yellow Zone,Yellow Zone booths,"{start:{x:341,y:448},end:{x:627,y:599}}","(484, 524)"
 144,Beacon,Beacon 1,No Description,"{start:{x:270,y:261},end:{x:270,y:261}}","(270, 261)"
 145,Beacon,Beacon 2,No Description,"{start:{x:188,y:368},end:{x:188,y:368}}","(188, 368)"
 146,Beacon,Beacon 3,No Description,"{start:{x:142,y:529},end:{x:142,y:529}}","(142, 529)"
