@@ -36,7 +36,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   List<int> lastGridPosition = [-1, -1];
   List<List<dynamic>> currentPath = [];
   double manualRotationAngle = 0.0;
-
+  bool isInWalkableZone = false;
+  OverlayEntry? _warningOverlay;
 
   final TransformationController _transformationController = TransformationController();
   late AnimationController _moveController;
@@ -64,10 +65,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     super.initState();
 
     basePosition = Offset(widget.initialPosition.x, widget.initialPosition.y);
-    currentPath = [
-          widget.startLocation,
-          ...widget.path
-        ].map<List<dynamic>>((row) => List<dynamic>.from(row)).toList();
     currentPath = List.from(widget.path);
 
     _moveController = AnimationController(
@@ -79,7 +76,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       });
     });
 
-    fetchMapData();
+    fetchMapData().then((_) {
+      // Check initial walkable zone status and update path if needed
+      _checkWalkableZone();
+    });
 
     _headingSub = FlutterCompass.events?.listen((event) {
       if (event.heading != null) {
@@ -112,9 +112,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _moveController.forward(from: 0);
 
         imuOffset = Vector2D(newOffset.dx, newOffset.dy);
-        updatePath();
-        _centerOnUserAfterMove();
-        _checkArrival();
+        _checkWalkableZone();
+        if (isInWalkableZone) {
+          updatePath();
+          _centerOnUserAfterMove();
+          _checkArrival();
+        }
       }
     });
   }
@@ -147,24 +150,58 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> updatePath() async {
+    if (!isInWalkableZone) return;  // Don't update path if not in walkable zone
+    
     final px = basePosition.dx + imuOffset.x;
     final py = basePosition.dy + imuOffset.y;
     final xg = (px / cellSize).floor();
     final yg = (py / cellSize).floor();
+    
+    // Only update if position has changed
     if (xg == lastGridPosition[0] && yg == lastGridPosition[1]) return;
     lastGridPosition = [xg, yg];
+
+    // Get all walkable zones for constraints
+    List<Map<String, dynamic>> walkableAreas = [];
+    for (var el in elements) {
+      if (el["type"].toString().toLowerCase() == "zone") {
+        walkableAreas.add({
+          "start": {
+            "x": (el["start"]["x"] as num).toDouble(),
+            "y": (el["start"]["y"] as num).toDouble()
+          },
+          "end": {
+            "x": (el["end"]["x"] as num).toDouble(),
+            "y": (el["end"]["y"] as num).toDouble()
+          }
+        });
+      }
+    }
 
     try {
       final resp = await http.post(
         Uri.parse('https://inmaps.onrender.com/path'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({"from_": [xg, yg], "to": widget.selectedBoothName}),
+        body: jsonEncode({
+          "from_": [xg, yg],
+          "to": widget.selectedBoothName,
+          "constraints": {
+            "walkable_areas": walkableAreas,
+            "grid_size": cellSize,
+            "avoid_obstacles": true
+          }
+        }),
       );
+      
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         setState(() {
           currentPath = List<List<dynamic>>.from(data['path']);
         });
+        print("✅ Path updated successfully with ${currentPath.length} points");
+      } else {
+        print("❌ Path update failed with status: ${resp.statusCode}");
+        print("Response: ${resp.body}");
       }
     } catch (e) {
       print('❌ Path fetch failed: $e');
@@ -359,6 +396,93 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _transformationController.value = matrix;
   }
 
+  bool _isPointInWalkableZone(Offset point) {
+    for (var el in elements) {
+      final type = (el["type"] as String).toLowerCase();
+      if (type == "zone") {
+        final start = el["start"];
+        final end = el["end"];
+        final rect = Rect.fromPoints(
+          Offset(start["x"].toDouble(), start["y"].toDouble()),
+          Offset(end["x"].toDouble(), end["y"].toDouble()),
+        );
+        if (rect.contains(point)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _showWarningMessage() {
+    _removeWarningOverlay();
+    _warningOverlay = OverlayEntry(
+      builder: (ctx) => Positioned(
+        top: MediaQuery.of(context).size.height * 0.1,
+        left: 0, right: 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            decoration: BoxDecoration(
+              color: Colors.red.shade600,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+                SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    "Please go to the 2nd floor to use our services",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_warningOverlay!);
+  }
+
+  void _removeWarningOverlay() {
+    _warningOverlay?.remove();
+    _warningOverlay = null;
+  }
+
+  void _checkWalkableZone() {
+    final userPosition = Offset(basePosition.dx + imuOffset.x, basePosition.dy + imuOffset.y);
+    final wasInWalkableZone = isInWalkableZone;
+    isInWalkableZone = _isPointInWalkableZone(userPosition);
+    
+    if (!isInWalkableZone && wasInWalkableZone != isInWalkableZone) {
+      _showWarningMessage();
+      setState(() {
+        currentPath = []; // Clear path when leaving walkable zone
+      });
+    } else if (isInWalkableZone) {
+      _removeWarningOverlay();
+      if (!wasInWalkableZone) {
+        // If we just entered a walkable zone, update the path
+        updatePath();
+      }
+    }
+  }
+
   @override
   void dispose() {
     _moveController.dispose();
@@ -367,6 +491,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _accelSub?.cancel();
     _removeOverlay();
     _removeArrivalOverlay();
+    _removeWarningOverlay();
     super.dispose();
   }
   Offset _rotatePoint(Offset point, Offset center, double angle) {
@@ -424,6 +549,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                             currentHeading,
                             animatedOffset,
                             manualRotationAngle,
+                            isInWalkableZone,
                           ),
                         ),
                         Positioned.fill(
@@ -440,17 +566,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
                               // 4. Now check booths normally using rotatedTapPos!
                               for (var el in elements) {
-                                if (el["type"].toString().toLowerCase() != "booth") continue;
+                                final type = el["type"].toString().toLowerCase();
+                                if (type != "booth" && type != "other") continue;
 
                                 final start = el["start"];
                                 final end = el["end"];
                                 final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
                                 final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-                                final boothRect = Rect.fromPoints(startOffset, endOffset);
+                                final elementRect = Rect.fromPoints(startOffset, endOffset);
 
-                                if (boothRect.contains(rotatedTapPos)) {
-                                  print("🎯 Correct booth tapped: ${el['name']}");
-                                  _showBoothDescription(el);
+                                if (elementRect.contains(rotatedTapPos)) {
+                                  print("🎯 Element tapped: ${el['name']} (${el['type']})");
+                                  _showElementDescription(el);
                                   return;
                                 }
                               }
@@ -479,6 +606,97 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     );
   }
+
+  void _showElementDescription(dynamic element) {
+    _removeOverlay();
+    final screen = MediaQuery.of(context).size;
+    final type = element["type"].toString().toLowerCase();
+    
+    _overlayEntry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        child: Material(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              width: 300,
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: type == "booth" 
+                          ? [const Color(0xFF008C9E).withOpacity(0.8), const Color(0xFF008C9E)]
+                          : [Colors.yellow.shade600.withOpacity(0.8), Colors.yellow.shade600],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          type == "booth" ? Icons.store : Icons.info,
+                          color: type == "booth" ? Colors.white : Colors.black87,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            element["name"] ?? "Unnamed Area",
+                            style: TextStyle(
+                              color: type == "booth" ? Colors.white : Colors.black87,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      element["description"] ?? "No description available",
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: TextButton(
+                      onPressed: _removeOverlay,
+                      child: const Text("Close"),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
 }
 
 class MapPainter extends CustomPainter {
@@ -488,17 +706,19 @@ class MapPainter extends CustomPainter {
   final double headingDegrees;
   final Offset animatedOffset;
   final double manualRotation;
+  final bool isInWalkableZone;
 
-  static const double cellSize =40.0;
+  static const double cellSize = 40.0;
 
   MapPainter(
-      this.elements,
-      this.path,
-      this.basePosition,
-      this.headingDegrees,
-      this.animatedOffset,
-      this.manualRotation,
-      );
+    this.elements,
+    this.path,
+    this.basePosition,
+    this.headingDegrees,
+    this.animatedOffset,
+    this.manualRotation,
+    this.isInWalkableZone,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -510,7 +730,7 @@ class MapPainter extends CustomPainter {
     canvas.translate(-userCenter.dx, -userCenter.dy);
 
     final paintBooth = Paint()..color = const Color(0xFF008C9E).withOpacity(0.15);
-    final paintYellowZone = Paint()..color = Colors.yellow.withOpacity(0.15);
+    final paintYellowZone = Paint()..color = Colors.yellow.withOpacity(0.3);
     final paintPathGlow = Paint()
       ..color = const Color(0xFF008C9E).withOpacity(0.3)
       ..strokeWidth = 6.0
@@ -537,7 +757,7 @@ class MapPainter extends CustomPainter {
           end: Alignment.bottomRight,
           colors: [const Color(0xFF008C9E).withOpacity(0.2), const Color(0xFF008C9E).withOpacity(0.3)],
         ).createShader(Rect.fromPoints(startOffset, endOffset));
-      } else if (type == "yellow zone") {
+      } else if (type == "other") {
         paint = paintYellowZone;
       } else {
         continue;
@@ -564,47 +784,66 @@ class MapPainter extends CustomPainter {
         );
       }
     }
-    // Draw path
-    if (path.isNotEmpty) {
-      for (int i=0; i<path.length-1; i++) {
-        final p1 = Offset((path[i][0]+0.5)*cellSize, (path[i][1]+0.5)*cellSize);
-        final p2 = Offset((path[i+1][0]+0.5)*cellSize, (path[i+1][1]+0.5)*cellSize);
-        canvas.drawLine(p1,p2,paintPathGlow);
-        canvas.drawLine(p1,p2,paintPath);
+
+    // Draw path if in walkable zone
+    if (path.isNotEmpty && isInWalkableZone) {
+      for (int i = 0; i < path.length - 1; i++) {
+        final p1 = Offset((path[i][0] + 0.5) * cellSize, (path[i][1] + 0.5) * cellSize);
+        final p2 = Offset((path[i + 1][0] + 0.5) * cellSize, (path[i + 1][1] + 0.5) * cellSize);
+        canvas.drawLine(p1, p2, paintPathGlow);
+        canvas.drawLine(p1, p2, paintPath);
       }
     }
+
     // Draw user
-    canvas.drawCircle(userCenter,10,paintUserBorder);
-    canvas.drawCircle(userCenter,6,paintUser);
+    canvas.drawCircle(userCenter, 10, paintUserBorder);
+    canvas.drawCircle(userCenter, 6, paintUser);
+
     // Draw labels
-    final textStyle = const TextStyle(color: Colors.black87, fontSize:12, fontWeight:FontWeight.w500);
+    final textStyle = const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w500);
     for (var el in elements) {
       final type = (el["type"] as String).toLowerCase();
-
-      // Skip zones and beacons for labels too
-      if (!["booth", "blocker"].contains(type)) continue;
+      if (type != "booth" && type != "other") continue;
 
       final start = el["start"];
       final end = el["end"];
       final name = el["name"].toString().substring(0, min(3, el["name"].toString().length));
-      final center = Offset((start["x"].toDouble()+end["x"].toDouble())/2, (start["y"].toDouble()+end["y"].toDouble())/2);
+      final center = Offset(
+        (start["x"].toDouble() + end["x"].toDouble()) / 2,
+        (start["y"].toDouble() + end["y"].toDouble()) / 2
+      );
+
       canvas.save();
       canvas.translate(center.dx, center.dy);
       canvas.rotate(-manualRotation);
       canvas.translate(-center.dx, -center.dy);
-      final tp = TextPainter(text: TextSpan(text: name, style: textStyle), textDirection: TextDirection.ltr);
-      tp.layout();
-      tp.paint(canvas, center-Offset(tp.width/2,tp.height/2));
+
+      final tp = TextPainter(
+        text: TextSpan(text: name, style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
       canvas.restore();
     }
+
     canvas.restore();
-    // Draw cone unchanged by map rotation
-    const coneLen=80.0, coneAng=pi/6;
-    final hr = headingDegrees*pi/180;
-    final c1 = userCenter+Offset(cos(hr-coneAng),sin(hr-coneAng))*coneLen;
-    final c2 = userCenter+Offset(cos(hr+coneAng),sin(hr+coneAng))*coneLen;
-    final cone = Path()..moveTo(userCenter.dx,userCenter.dy)..lineTo(c1.dx,c1.dy)..lineTo(c2.dx,c2.dy)..close();
-    canvas.drawPath(cone, Paint()..color=const Color(0xFF008C9E).withOpacity(0.15)..style=PaintingStyle.fill);
+
+    // Draw cone
+    const coneLen = 80.0, coneAng = pi / 6;
+    final hr = headingDegrees * pi / 180;
+    final c1 = userCenter + Offset(cos(hr - coneAng), sin(hr - coneAng)) * coneLen;
+    final c2 = userCenter + Offset(cos(hr + coneAng), sin(hr + coneAng)) * coneLen;
+    final cone = Path()
+      ..moveTo(userCenter.dx, userCenter.dy)
+      ..lineTo(c1.dx, c1.dy)
+      ..lineTo(c2.dx, c2.dy)
+      ..close();
+    canvas.drawPath(
+      cone,
+      Paint()
+        ..color = const Color(0xFF008C9E).withOpacity(0.15)
+        ..style = PaintingStyle.fill,
+    );
   }
 
   @override
