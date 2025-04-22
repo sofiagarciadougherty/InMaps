@@ -112,12 +112,26 @@ def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 WALKABLE_ZONES = []
+STAIRS_ZONES = []
+YELLOW_ZONES = []
 
 for booth in booth_data:
-    if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
+    if booth["type"].lower() == "zone":
+        name = booth["name"].strip().lower()
         start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
         end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
-        WALKABLE_ZONES.append({
+        zone = {
+            "start": start,
+            "end": end
+        }
+        if name == "walkable":
+            WALKABLE_ZONES.append(zone)
+        elif name == "stairs":
+            STAIRS_ZONES.append(zone)
+    elif booth["type"].lower() == "other" and "yellow zone" in booth["name"].lower():
+        start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
+        end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
+        YELLOW_ZONES.append({
             "start": start,
             "end": end
         })
@@ -259,7 +273,6 @@ def get_path(request: PathRequest):
         print("❌ Booth not found:", booth_name)
         return JSONResponse(content={"error": "Booth not found"}, status_code=404)
 
-
     goal_x = int(booth["center"]["x"] // CELL_SIZE)
     goal_y = int(booth["center"]["y"] // CELL_SIZE)
     n_rows, n_cols = len(VENUE_GRID), len(VENUE_GRID[0])
@@ -267,40 +280,24 @@ def get_path(request: PathRequest):
     goal_y = max(0, min(goal_y, n_rows - 1))
     goal_grid = (goal_x, goal_y)
 
-
-    def find_nearest_free_cell(goal, grid):
-        h, w = len(grid), len(grid[0])
-        q = deque([ (goal[0], goal[1]) ])
-        seen = { (goal[0], goal[1]) }
-        while q:
-            x, y = q.popleft()
-            if grid[y][x] == 1:
-                return (x, y)
-            for dx, dy in ((0,1),(1,0),(-1,0),(0,-1)):
-                nx, ny = x+dx, y+dy
-                if 0 <= nx < w and 0 <= ny < h and (nx,ny) not in seen:
-                    seen.add((nx,ny))
-                    q.append((nx,ny))
-        return None
-
     print(f"📍 Routing from {request.from_} to grid cell {goal_grid}")
     print("🧱 Sample grid slice at goal:")
     print(np.array(VENUE_GRID)[goal_grid[1]-1:goal_grid[1]+2, goal_grid[0]-1:goal_grid[0]+2])
 
-    # 🔁 If goal is blocked, find a nearby free cell
-    if VENUE_GRID[goal_grid[1]][goal_grid[0]] == 0:
-        print("⚠️ Goal is blocked. Searching for nearby free cell...")
-        new_goal = find_nearest_free_cell(goal_grid, VENUE_GRID)
-        if not new_goal:
-            print("❌ No valid nearby goal found.")
-            return JSONResponse(
-                content={"error": "User likely on the wrong floor. Please go to the 2nd floor."},
-                status_code=404
-            )
-        print(f"✅ Redirected goal to: {new_goal}")
-        goal_grid = new_goal
-
     path = a_star(tuple(request.from_), goal_grid)
+    if path is None:
+        print("❌ No path found - User not in walkable area")
+        return JSONResponse(
+            content={"error": "Please go to 2nd floor to use our services"},
+            status_code=404
+        )
+    elif not path:
+        print("❌ No path found to goal")
+        return JSONResponse(
+            content={"error": "No path found to destination"},
+            status_code=404
+        )
+
     print(f"🧭 Final path: {path}")
     if path:
         print(f"🏁 Last cell in path: {path[-1]}, Target goal: {goal_grid}")
@@ -320,9 +317,11 @@ def get_booth_by_id(booth_id: int):
 
 @app.get("/map-data")
 def get_map_data():
-    global WALKABLE_ZONES
+    global WALKABLE_ZONES, STAIRS_ZONES, YELLOW_ZONES
     visual_elements = []
-    WALKABLE_ZONES.clear()  # Clear old walkable zones first
+    WALKABLE_ZONES.clear()  # Clear old zones first
+    STAIRS_ZONES.clear()
+    YELLOW_ZONES.clear()
 
     for booth in booth_data:
         element = {
@@ -334,18 +333,32 @@ def get_map_data():
         }
         visual_elements.append(element)
 
-        # ⚡️ If the booth is a walkable zone, add it
-        if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
+        # Add zones to their respective lists
+        if booth["type"].lower() == "zone":
+            name = booth["name"].strip().lower()
             start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
             start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
             end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
             end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
-            WALKABLE_ZONES.append({
+            zone = {
+                "start": (start_x, start_y),
+                "end":   (end_x, end_y)
+            }
+            if name == "walkable":
+                WALKABLE_ZONES.append(zone)
+            elif name == "stairs":
+                STAIRS_ZONES.append(zone)
+        elif booth["type"].lower() == "other" and "yellow zone" in booth["name"].lower():
+            start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
+            start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
+            end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
+            end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
+            YELLOW_ZONES.append({
                 "start": (start_x, start_y),
                 "end":   (end_x, end_y)
             })
 
-    print(f"✅ Loaded {len(WALKABLE_ZONES)} walkable zones.")
+    print(f"✅ Loaded zones: {len(WALKABLE_ZONES)} walkable, {len(STAIRS_ZONES)} stairs, {len(YELLOW_ZONES)} yellow")
     return JSONResponse(content={"elements": visual_elements})
 
 
@@ -426,36 +439,36 @@ def a_star(start, goal):
     visited = set()
 
     if not is_inside_walkable(start[0], start[1], WALKABLE_ZONES):
-        print("Please go to 2nd floor 🚶‍♂️")
-        return []
+        print("❌ User not in walkable area - Please go to 2nd floor")
+        return None
 
     while open_set:
-            est_total_cost, path_cost, current, path = heappop(open_set)
+        est_total_cost, path_cost, current, path = heappop(open_set)
 
-            if current == goal:
-                return path + [current]
+        if current == goal:
+            return path + [current]
 
-            if current in visited:
-                continue
-            visited.add(current)
+        if current in visited:
+            continue
+        visited.add(current)
 
-            for dx, dy in neighbors:
-                nx, ny = current[0] + dx, current[1] + dy
+        for dx, dy in neighbors:
+            nx, ny = current[0] + dx, current[1] + dy
 
-                # Check bounds
-                if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
-                    # Check if the cell is walkable (1 = free space)
-                    if is_inside_walkable(nx, ny, WALKABLE_ZONES) and (nx, ny) not in visited:
-                        next_cost = path_cost + 1
-                        estimated_total = next_cost + heuristic((nx, ny), goal)
-                        heappush(open_set, (
-                            estimated_total,
-                            next_cost,
-                            (nx, ny),
-                            path + [current]
-                        ))
+            # Check bounds
+            if 0 <= nx < len(VENUE_GRID[0]) and 0 <= ny < len(VENUE_GRID):
+                # Check if the cell is walkable (1 = free space)
+                if is_inside_walkable(nx, ny, WALKABLE_ZONES) and (nx, ny) not in visited:
+                    next_cost = path_cost + 1
+                    estimated_total = next_cost + heuristic((nx, ny), goal)
+                    heappush(open_set, (
+                        estimated_total,
+                        next_cost,
+                        (nx, ny),
+                        path + [current]
+                    ))
 
-    return []
+    return None
     
 @app.get("/")
 def root():
