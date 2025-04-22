@@ -65,9 +65,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     basePosition = Offset(widget.initialPosition.x, widget.initialPosition.y);
     currentPath = [
-          widget.startLocation,
-          ...widget.path
-        ].map<List<dynamic>>((row) => List<dynamic>.from(row)).toList();
+      widget.startLocation,
+      ...widget.path
+    ].map<List<dynamic>>((row) => List<dynamic>.from(row)).toList();
     currentPath = List.from(widget.path);
 
     _moveController = AnimationController(
@@ -160,19 +160,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({"from_": [xg, yg], "to": widget.selectedBoothName}),
       );
-      
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         setState(() {
           currentPath = List<List<dynamic>>.from(data['path']);
         });
-      } else if (resp.statusCode == 404) {
-        print("❌ Path not found - showing floor notification");
-        _showFloorNotification();
       }
     } catch (e) {
       print('❌ Path fetch failed: $e');
-      _showFloorNotification(); // Also show notification on error
     }
   }
 
@@ -180,9 +175,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _showBoothDescription(dynamic booth) {
     _removeOverlay();
     final screen = MediaQuery.of(context).size;
-    final isYellowZone = booth["type"].toString().toLowerCase() == "other" && 
-                        booth["name"].toString().toLowerCase().contains("yellow zone");
-    
     _overlayEntry = OverlayEntry(
       builder: (ctx) => Positioned(
         left: 0,
@@ -213,9 +205,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: isYellowZone ? 
-                          [Colors.yellow.shade400, Colors.yellow.shade600] :
-                          [const Color(0xFF008C9E).withOpacity(0.8), const Color(0xFF008C9E)],
+                        colors: [
+                          const Color(0xFF008C9E).withOpacity(0.8),
+                          const Color(0xFF008C9E),
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -228,9 +221,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       children: [
                         Icon(
                           booth["type"] == "booth" ? Icons.store :
-                          booth["type"] == "blocker" ? Icons.block : 
-                          isYellowZone ? Icons.warning_amber_rounded :
-                          Icons.info,
+                          booth["type"] == "blocker" ? Icons.block : Icons.info,
                           color: Colors.white,
                           size: 24,
                         ),
@@ -343,54 +334,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _arrivalOverlay = null;
   }
 
-  void _showFloorNotification() {
-    print("🚨 Showing floor notification");
-    _removeArrivalOverlay();
-    _arrivalOverlay = OverlayEntry(
-      builder: (ctx) => Positioned(
-        top: MediaQuery.of(context).size.height * 0.1,
-        left: 0, right: 0,
-        child: Center(
-          child: TweenAnimationBuilder<double>(
-            duration: const Duration(milliseconds: 500),
-            tween: Tween(begin: 0.0, end: 1.0),
-            builder: (c, v, child) => Transform.scale(
-              scale: v,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal:24, vertical:16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.orange.shade400, Colors.orange.shade600],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: Colors.white, size:28),
-                    const SizedBox(width:12),
-                    Text("Please go to 2nd floor to use our services!", 
-                      style: const TextStyle(
-                        color: Colors.white, 
-                        fontSize:18, 
-                        fontWeight: FontWeight.bold
-                      )
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    Overlay.of(context).insert(_arrivalOverlay!);
-    Future.delayed(const Duration(seconds:3), _removeArrivalOverlay);
-  }
-
   double _getMapRotationAngle() {
-  return manualRotationAngle;
-}
+    return manualRotationAngle;
+  }
 
 
   void _centerOnUser() {
@@ -444,95 +390,92 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       body: elements.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Stack(
-              children: [
-                InteractiveViewer(
-                  transformationController: _transformationController,
-                  minScale: 0.2,
-                  maxScale: 5.0,
-                  boundaryMargin: const EdgeInsets.all(1000),
-                  panEnabled: true,
-                  scaleEnabled: true,
-                  clipBehavior: Clip.none,
-                  constrained: false,
-                  onInteractionUpdate: (details) {
-                    if (details.pointerCount == 2) {
-                      final scale = _transformationController.value.getMaxScaleOnAxis();
-                      final dampeningFactor = 0.02 / scale.clamp(1.0, 5.0);
-                      setState(() {
-                        manualRotationAngle += details.rotation * dampeningFactor;  
-                        manualRotationAngle = manualRotationAngle.clamp(-pi, pi);
-                      });
-                    }
-                  },
-                  child: Container(
-                    width: maxX,
-                    height: maxY,
-                    child: Stack(
-                      children: [
-                        CustomPaint(
-                          size: Size(maxX, maxY),
-                          painter: MapPainter(
-                            elements,
-                            currentPath,
-                            Offset(basePosition.dx, basePosition.dy),
-                            currentHeading,
-                            animatedOffset,
-                            manualRotationAngle,
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: GestureDetector(
-                            onTapDown: (details) {
-                              // 1. Get tap position
-                              Offset tapPos = details.localPosition;
-
-                              // 2. Calculate the center point (for rotation reference)
-                              final userCenter = Offset(basePosition.dx + animatedOffset.dx, basePosition.dy + animatedOffset.dy);
-
-                              // 3. Undo the map rotation for the tap
-                              final rotatedTapPos = _rotatePoint(tapPos, userCenter, -manualRotationAngle);
-
-                              // 4. Now check booths and zones using rotatedTapPos!
-                              for (var el in elements) {
-                                final type = el["type"].toString().toLowerCase();
-                                final name = el["name"].toString().toLowerCase();
-                                
-                                // Skip if not a booth or yellow zone
-                                if (type != "booth" && !(type == "other" && name.contains("yellow zone"))) continue;
-
-                                final start = el["start"];
-                                final end = el["end"];
-                                final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
-                                final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
-                                final rect = Rect.fromPoints(startOffset, endOffset);
-
-                                if (rect.contains(rotatedTapPos)) {
-                                  print("🎯 Correct element tapped: ${el['name']}");
-                                  _showBoothDescription(el);
-                                  return;
-                                }
-                              }
-                              _removeOverlay();
-                            },
-                            child: Container(color: Colors.transparent),
-                          ),
-                        ),
-                      ],
+        children: [
+          InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: 0.2,
+            maxScale: 5.0,
+            boundaryMargin: const EdgeInsets.all(1000),
+            panEnabled: true,
+            scaleEnabled: true,
+            clipBehavior: Clip.none,
+            constrained: false,
+            onInteractionUpdate: (details) {
+              if (details.pointerCount == 2) {
+                final scale = _transformationController.value.getMaxScaleOnAxis();
+                final dampeningFactor = 0.02 / scale.clamp(1.0, 5.0);
+                setState(() {
+                  manualRotationAngle += details.rotation * dampeningFactor;
+                  manualRotationAngle = manualRotationAngle.clamp(-pi, pi);
+                });
+              }
+            },
+            child: Container(
+              width: maxX,
+              height: maxY,
+              child: Stack(
+                children: [
+                  CustomPaint(
+                    size: Size(maxX, maxY),
+                    painter: MapPainter(
+                      elements,
+                      currentPath,
+                      Offset(basePosition.dx, basePosition.dy),
+                      currentHeading,
+                      animatedOffset,
+                      manualRotationAngle,
                     ),
                   ),
-                ),
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton(
-                    onPressed: _centerOnUser,
-                    backgroundColor: const Color(0xFF008C9E),
-                    child: const Icon(Icons.my_location, color: Colors.white),
-                    tooltip: 'Center on my location',
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTapDown: (details) {
+                        // 1. Get tap position
+                        Offset tapPos = details.localPosition;
+
+                        // 2. Calculate the center point (for rotation reference)
+                        final userCenter = Offset(basePosition.dx + animatedOffset.dx, basePosition.dy + animatedOffset.dy);
+
+                        // 3. Undo the map rotation for the tap
+                        final rotatedTapPos = _rotatePoint(tapPos, userCenter, -manualRotationAngle);
+
+                        // 4. Now check booths normally using rotatedTapPos!
+                        for (var el in elements) {
+                          if (el["type"].toString().toLowerCase() != "booth") continue;
+
+                          final start = el["start"];
+                          final end = el["end"];
+                          final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
+                          final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
+                          final boothRect = Rect.fromPoints(startOffset, endOffset);
+
+                          if (boothRect.contains(rotatedTapPos)) {
+                            print("🎯 Correct booth tapped: ${el['name']}");
+                            _showBoothDescription(el);
+                            return;
+                          }
+                        }
+                        _removeOverlay();
+                      },
+
+                      child: Container(color: Colors.transparent),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: _centerOnUser,
+              backgroundColor: const Color(0xFF008C9E),
+              child: const Icon(Icons.my_location, color: Colors.white),
+              tooltip: 'Center on my location',
+            ),
+          ),
+        ],
+      ),
 
     );
   }
@@ -567,15 +510,9 @@ class MapPainter extends CustomPainter {
     canvas.translate(-userCenter.dx, -userCenter.dy);
 
     final paintBooth = Paint()..color = const Color(0xFF008C9E).withOpacity(0.15);
-    final paintStairs = Paint()
-      ..color = Colors.red.shade300
-      ..style = PaintingStyle.fill;
-    final paintWalkable = Paint()
-      ..color = Colors.grey.shade300
-      ..style = PaintingStyle.fill;
-    final paintYellowZone = Paint()
-      ..color = Colors.yellow.shade300
-      ..style = PaintingStyle.fill;
+    final paintStairs = Paint()..color = Colors.red.withOpacity(0.2);
+    final paintWalkable = Paint()..color = Colors.grey.withOpacity(0.1);
+    final paintYellowZone = Paint()..color = Colors.yellow.withOpacity(0.15);
     final paintPathGlow = Paint()
       ..color = const Color(0xFF008C9E).withOpacity(0.3)
       ..strokeWidth = 6.0
@@ -587,36 +524,22 @@ class MapPainter extends CustomPainter {
     final paintUserBorder = Paint()..color = Colors.white;
     final paintUser = Paint()..color = const Color(0xFF008C9E);
 
-    // Draw zones first (as background)
+    // Draw walkable areas first (as shadows)
     for (var el in elements) {
       final type = (el["type"] as String).toLowerCase();
-      final name = (el["name"] as String).toLowerCase();
-      if (type == "zone") {
+      if (type == "walkable") {
         final start = el["start"];
         final end = el["end"];
-        final rect = Rect.fromPoints(
-          Offset(start["x"].toDouble(), start["y"].toDouble()),
-          Offset(end["x"].toDouble(), end["y"].toDouble())
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromPoints(
+                Offset(start["x"].toDouble(), start["y"].toDouble()),
+                Offset(end["x"].toDouble(), end["y"].toDouble())
+            ),
+            const Radius.circular(12),
+          ),
+          paintWalkable,
         );
-        
-        Paint zonePaint;
-        if (name == "walkable") {
-          zonePaint = paintWalkable;
-        } else if (name == "stairs") {
-          zonePaint = paintStairs;
-        } else {
-          continue;
-        }
-        
-        canvas.drawRect(rect, zonePaint);
-      } else if (type == "other" && name.contains("yellow zone")) {
-        final start = el["start"];
-        final end = el["end"];
-        final rect = Rect.fromPoints(
-          Offset(start["x"].toDouble(), start["y"].toDouble()),
-          Offset(end["x"].toDouble(), end["y"].toDouble())
-        );
-        canvas.drawRect(rect, paintYellowZone);
       }
     }
 
@@ -628,15 +551,17 @@ class MapPainter extends CustomPainter {
       final startOffset = Offset(start["x"].toDouble(), start["y"].toDouble());
       final endOffset = Offset(end["x"].toDouble(), end["y"].toDouble());
 
-      if (type == "zone") continue; // Skip zones as they're already drawn
-
       Paint paint;
-      if (type == "booth") {
+      if (type == "stairs") {
+        paint = paintStairs;
+      } else if (type == "booth") {
         paint = Paint()..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [const Color(0xFF008C9E).withOpacity(0.2), const Color(0xFF008C9E).withOpacity(0.3)],
         ).createShader(Rect.fromPoints(startOffset, endOffset));
+      } else if (type == "yellow_zone") {
+        paint = paintYellowZone;
       } else {
         continue;
       }

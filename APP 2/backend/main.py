@@ -112,26 +112,12 @@ def generate_venue_grid(csv_path, grid_size=CELL_SIZE):
 booth_data = load_booth_data(CSV_PATH)
 VENUE_GRID = generate_venue_grid(CSV_PATH)
 WALKABLE_ZONES = []
-STAIRS_ZONES = []
-YELLOW_ZONES = []
 
 for booth in booth_data:
-    if booth["type"].lower() == "zone":
-        name = booth["name"].strip().lower()
+    if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
         start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
         end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
-        zone = {
-            "start": start,
-            "end": end
-        }
-        if name == "walkable":
-            WALKABLE_ZONES.append(zone)
-        elif name == "stairs":
-            STAIRS_ZONES.append(zone)
-    elif booth["type"].lower() == "other" and "yellow zone" in booth["name"].lower():
-        start = (int(booth["area"]["start"]["x"] // CELL_SIZE), int(booth["area"]["start"]["y"] // CELL_SIZE))
-        end   = (int(booth["area"]["end"]["x"]   // CELL_SIZE), int(booth["area"]["end"]["y"]   // CELL_SIZE))
-        YELLOW_ZONES.append({
+        WALKABLE_ZONES.append({
             "start": start,
             "end": end
         })
@@ -334,11 +320,9 @@ def get_booth_by_id(booth_id: int):
 
 @app.get("/map-data")
 def get_map_data():
-    global WALKABLE_ZONES, STAIRS_ZONES, YELLOW_ZONES
+    global WALKABLE_ZONES
     visual_elements = []
-    WALKABLE_ZONES.clear()  # Clear old zones first
-    STAIRS_ZONES.clear()
-    YELLOW_ZONES.clear()
+    WALKABLE_ZONES.clear()  # Clear old walkable zones first
 
     for booth in booth_data:
         element = {
@@ -350,32 +334,18 @@ def get_map_data():
         }
         visual_elements.append(element)
 
-        # Add zones to their respective lists
-        if booth["type"].lower() == "zone":
-            name = booth["name"].strip().lower()
+        # ⚡️ If the booth is a walkable zone, add it
+        if booth["type"].lower() == "zone" and booth["name"].strip().lower() == "walkable":
             start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
             start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
             end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
             end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
-            zone = {
-                "start": (start_x, start_y),
-                "end":   (end_x, end_y)
-            }
-            if name == "walkable":
-                WALKABLE_ZONES.append(zone)
-            elif name == "stairs":
-                STAIRS_ZONES.append(zone)
-        elif booth["type"].lower() == "other" and "yellow zone" in booth["name"].lower():
-            start_x = int(booth["area"]["start"]["x"] // CELL_SIZE)
-            start_y = int(booth["area"]["start"]["y"] // CELL_SIZE)
-            end_x   = int(booth["area"]["end"]["x"]   // CELL_SIZE)
-            end_y   = int(booth["area"]["end"]["y"]   // CELL_SIZE)
-            YELLOW_ZONES.append({
+            WALKABLE_ZONES.append({
                 "start": (start_x, start_y),
                 "end":   (end_x, end_y)
             })
 
-    print(f"✅ Loaded zones: {len(WALKABLE_ZONES)} walkable, {len(STAIRS_ZONES)} stairs, {len(YELLOW_ZONES)} yellow")
+    print(f"✅ Loaded {len(WALKABLE_ZONES)} walkable zones.")
     return JSONResponse(content={"elements": visual_elements})
 
 
