@@ -527,7 +527,8 @@ class MapPainter extends CustomPainter {
     // Draw walkable areas first (as shadows)
     for (var el in elements) {
       final type = (el["type"] as String).toLowerCase();
-      if (type == "walkable") {
+      final name = (el["name"] as String?) ?? "";
+      if (type == "zone" && name == "Walkable") {
         final start = el["start"];
         final end = el["end"];
         canvas.drawRRect(

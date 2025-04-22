@@ -7,7 +7,6 @@ export "FLUTTER_TARGET=/Users/sofiagarcia/Desktop/InMaps/APP 2/navigation_app/li
 export "FLUTTER_BUILD_DIR=build"
 export "FLUTTER_BUILD_NAME=1.0.0"
 export "FLUTTER_BUILD_NUMBER=1"
-export "CONFIGURATION_BUILD_DIR=/Users/sofiagarcia/Desktop/InMaps/APP 2/navigation_app/build/ios/iphoneos"
 export "DART_OBFUSCATION=false"
 export "TRACK_WIDGET_CREATION=true"
 export "TREE_SHAKE_ICONS=false"
