@@ -349,9 +349,11 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       return;
     }
 
+    // Convert to server coordinate system (multiply by cellSize)
+    final serverX = (userX * 40.0).round();
+    final serverY = (userY * 40.0).round();
     debugPrint("📍 Current user location: $userLocation");
-    final start = userLocation.split(",").map((e) => int.parse(e.trim()) ~/ 40).toList();
-    debugPrint("🎯 Calculated start coordinates: $start");
+    debugPrint("🎯 Server coordinates: [$serverX, $serverY]");
     
     final heading = await FlutterCompass.events!.first;
     final headingDegrees = heading.heading ?? 0.0;
@@ -376,97 +378,101 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       }
     }
     debugPrint("🚶‍♂️ Found $zoneCount walkable zones");
-    
-    try {
-      debugPrint("📤 Sending path request to server with walkable areas...");
-      final requestBody = {
-        "from_": start,
-        "to": task["name"],
-        "constraints": {
-          "walkable_areas": walkableAreas,
-          "grid_size": 40.0,
-          "avoid_obstacles": true
-        }
-      };
-      debugPrint("Request body: ${jsonEncode(requestBody)}");
-      
-      final response = await http.post(
-        Uri.parse('https://inmaps.onrender.com/path'),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(requestBody),
-      );
-      debugPrint("📥 Response from /path: ${response.statusCode}");
-      debugPrint("Response body: ${response.body}");
-      
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        final path = decoded["path"];
-        if (path == null || (path is List && path.isEmpty)) {
-          debugPrint("❌ Returned path is empty.");
-          _showErrorDialog("No path found to the destination.");
-          return;
-        }
 
-        // Prepend our start cell to the returned route
-        final displayPath = [
-          start,
-          ...List<List<dynamic>>.from(path)
-        ];
-        
-        debugPrint("✅ Path received successfully: $displayPath");
-        debugPrint("📍 Start location: $start");
-        debugPrint("🎯 Initial position: ${start[0] * 40.0}, ${start[1] * 40.0}");
-        
-        debugPrint("🚀 Attempting to navigate to MapScreen...");
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => MapScreen(
-              path: displayPath,
-              startLocation: start,
-              headingDegrees: headingDegrees,
-              initialPosition: Vector2D(
-                start[0] * 40.0,
-                start[1] * 40.0,
-              ),
-              selectedBoothName: task["name"],
-              onArrival: (arrived) {
-                debugPrint("🏁 onArrival callback triggered with arrived=$arrived");
-                if (arrived && !completedBoothNames.contains(task["name"])) {
-                  setState(() {
-                    task["completed"] = true;
-                    completedBoothNames.add(task["name"]);
-                    totalPoints += (task["points"] as int);
-                    globalTotalPoints = totalPoints;
-                    rewardText = "+${task["points"]} points!";
-                    showReward = true;
-                  });
-                  _animationController.forward(from: 0);
-                  Future.delayed(const Duration(milliseconds: 1500), () {
-                    if (mounted) {
-                      setState(() => showReward = false);
-                    }
-                  });
-                }
-              },
-            ),
-          ),
-        );
-        debugPrint("✅ Navigator.push() completed");
-      } else {
-        debugPrint("❌ Non-200 status code: ${response.statusCode}");
-        if (response.statusCode == 400) {
-          final error = jsonDecode(response.body)["error"];
-          _showErrorDialog(error ?? "Cannot find path to destination. Please try again.");
-        } else {
-          _showErrorDialog("Error finding path. Please try again.");
-        }
+    // Check if the point is in a walkable zone
+    bool isInWalkableZone = false;
+    final userPoint = Offset(serverX.toDouble(), serverY.toDouble());
+    for (var area in walkableAreas) {
+      final rect = Rect.fromPoints(
+        Offset(area["start"]["x"], area["start"]["y"]),
+        Offset(area["end"]["x"], area["end"]["y"]),
+      );
+      if (rect.contains(userPoint)) {
+        isInWalkableZone = true;
+        break;
       }
-    } catch (e, stackTrace) {
-      debugPrint("❌ Error navigating to task: $e");
-      debugPrint("Stack trace: $stackTrace");
-      _showErrorDialog("An error occurred. Please try again.");
     }
+
+    // Always navigate to map screen, but with empty path if not in walkable zone
+    List<List<dynamic>> displayPath = [];
+    
+    if (isInWalkableZone) {
+      try {
+        debugPrint("📤 Sending path request to server with walkable areas...");
+        final requestBody = {
+          "from_": [serverX, serverY],
+          "to": task["name"],
+          "constraints": {
+            "walkable_areas": walkableAreas,
+            "grid_size": 40.0,
+            "avoid_obstacles": true
+          }
+        };
+        debugPrint("Request body: ${jsonEncode(requestBody)}");
+        
+        final response = await http.post(
+          Uri.parse('https://inmaps.onrender.com/path'),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(requestBody),
+        );
+        debugPrint("📥 Response from /path: ${response.statusCode}");
+        debugPrint("Response body: ${response.body}");
+        
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          final path = decoded["path"];
+          if (path != null && path is List && path.isNotEmpty) {
+            // Convert server coordinates back to grid coordinates for display
+            displayPath = [
+              [userX.round(), userY.round()],
+              ...List<List<dynamic>>.from(path).map((point) => 
+                [(point[0] as num) ~/ 40, (point[1] as num) ~/ 40]
+              ).toList()
+            ];
+          }
+        }
+      } catch (e, stackTrace) {
+        debugPrint("❌ Error getting path: $e");
+        debugPrint("Stack trace: $stackTrace");
+      }
+    }
+
+    debugPrint("🚀 Attempting to navigate to MapScreen...");
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MapScreen(
+          path: displayPath,
+          startLocation: [userX.round(), userY.round()],
+          headingDegrees: headingDegrees,
+          initialPosition: Vector2D(
+            userX * 40.0,
+            userY * 40.0,
+          ),
+          selectedBoothName: task["name"],
+          onArrival: (arrived) {
+            debugPrint("🏁 onArrival callback triggered with arrived=$arrived");
+            if (arrived && !completedBoothNames.contains(task["name"])) {
+              setState(() {
+                task["completed"] = true;
+                completedBoothNames.add(task["name"]);
+                totalPoints += (task["points"] as int);
+                globalTotalPoints = totalPoints;
+                rewardText = "+${task["points"]} points!";
+                showReward = true;
+              });
+              _animationController.forward(from: 0);
+              Future.delayed(const Duration(milliseconds: 1500), () {
+                if (mounted) {
+                  setState(() => showReward = false);
+                }
+              });
+            }
+          },
+        ),
+      ),
+    );
+    debugPrint("✅ Navigator.push() completed");
   }
 
   void _showErrorDialog(String message) {

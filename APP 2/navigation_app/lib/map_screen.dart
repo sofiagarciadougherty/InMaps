@@ -349,7 +349,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.check_circle_outline, color: Colors.white, size:28),
                     const SizedBox(width:12),
@@ -436,7 +435,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               ],
             ),
             child: const Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.warning_rounded, color: Colors.white, size: 24),
                 SizedBox(width: 12),
@@ -807,7 +805,10 @@ class MapPainter extends CustomPainter {
 
       final start = el["start"];
       final end = el["end"];
-      final name = el["name"].toString().substring(0, min(3, el["name"].toString().length));
+      final rawName = el["name"].toString();
+      final name = (type == "other")
+          ? rawName                                 
+          : rawName.substring(0, min(3, rawName.length));
       final center = Offset(
           (start["x"].toDouble() + end["x"].toDouble()) / 2,
           (start["y"].toDouble() + end["y"].toDouble()) / 2
