@@ -9,6 +9,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:navigation_app/models/beacon.dart';
 import 'package:navigation_app/utils/positioning.dart';
+import 'package:navigation_app/utils/smoothed_position.dart';
 import './utils/vector2d.dart';
 
 // Global variable to preserve total points between screen navigations.
@@ -26,6 +27,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- BLE & Positioning ----------------
   final flutterReactiveBle = FlutterReactiveBle();
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
+  late SmoothedPositionTracker positionTracker;
+  Vector2D currentPosition = Vector2D(0, 0);
+  StreamSubscription<Vector2D>? _positionSubscription;
 
   /// Mapping of known beacon IDs to their [x, y] positions.
   final Map<String, List<int>> beaconIdToPosition = {
@@ -39,6 +43,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   /// Current user location as a string "x, y".
   String userLocation = "";
+
+  // Configuration from backend
+  Map<String, dynamic> configData = {};
+  int gridCellSize = 50;
+  double metersToGridFactor = 2.0;
+  int txPower = -59;
+  bool isConfigLoaded = false;
 
   // ---------------- Map Data ----------------
   List<dynamic> elements = [];
@@ -63,15 +74,32 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   // ---------------- Periodic Timer ----------------
   Timer? _proximityTimer;
 
+  // ---------------- Request Path from Backend ----------------
+  List<List<dynamic>> currentPath = [];
+
   @override
   void initState() {
     super.initState();
     // Load any existing points.
     totalPoints = globalTotalPoints;
 
+    // Initialize position tracker with smoothing
+    positionTracker = SmoothedPositionTracker(alpha: 0.85, intervalMs: 500);
+    _positionSubscription = positionTracker.positionStream.listen((position) {
+      setState(() {
+        currentPosition = position;
+        userLocation = "${position.x.round()}, ${position.y.round()}";
+      });
+    });
+
+    // Start position tracking
+    positionTracker.start();
+
     _startBleScan();
-    _fetchMapData().then((_) {
-      _fetchTasks(); // After fetching, isLoading is set to false.
+    fetchConfiguration().then((_) {
+      _fetchMapData().then((_) {
+        _fetchTasks(); // After fetching, isLoading is set to false.
+      });
     });
 
     _animationController = AnimationController(
@@ -91,9 +119,93 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _scanSubscription?.cancel();
+    _positionSubscription?.cancel();
+    positionTracker.dispose();
     _animationController.dispose();
     _proximityTimer?.cancel();
     super.dispose();
+  }
+
+  // Fetch configuration from backend
+  Future<void> fetchConfiguration() async {
+    try {
+      final response = await http.get(Uri.parse('https://inmaps.onrender.com/config'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          configData = data;
+
+          // Parse beacon positions
+          final positions = data['beaconPositions'] as Map<String, dynamic>;
+          beaconIdToPosition.clear();
+          positions.forEach((key, value) {
+            beaconIdToPosition[key] = [
+              (value['x'] as num).toInt() * gridCellSize,
+              (value['y'] as num).toInt() * gridCellSize
+            ];
+          });
+
+          // Parse scale factors and calibration values
+          gridCellSize = data['gridCellSize'] ?? 50;
+          metersToGridFactor = (data['metersToGridFactor'] ?? 2.0).toDouble();
+          txPower = data['txPower'] ?? -59;
+
+          isConfigLoaded = true;
+          debugPrint("✅ Configuration loaded from backend");
+          debugPrint("📏 Meters to Grid Factor: $metersToGridFactor");
+
+          // Update calibration in the position tracker
+          positionTracker.updateCalibration(metersToGridFactor);
+        });
+      } else {
+        debugPrint("❌ Failed to load configuration: ${response.statusCode}");
+        _initializeDefaultConfig();
+      }
+    } catch (e) {
+      debugPrint("❌ Error loading configuration: $e");
+      _initializeDefaultConfig();
+    }
+  }
+
+  // Initialize with default hardcoded values if backend config fails
+  void _initializeDefaultConfig() {
+    setState(() {
+      gridCellSize = 50;
+      metersToGridFactor = 2.0;
+      txPower = -59;
+      isConfigLoaded = true;
+      debugPrint("⚠️ Using default configuration");
+    });
+  }
+
+  // Convert scanned devices to Beacon objects
+  void _updateBeaconList() {
+    final List<Beacon> updatedBeacons = [];
+
+    scannedDevices.forEach((id, rssi) {
+      if (beaconIdToPosition.containsKey(id)) {
+        final position = beaconIdToPosition[id]!;
+        updatedBeacons.add(Beacon(
+          id: id,
+          name: id,
+          rssi: rssi,
+          baseRssi: txPower,
+          position: Position(
+              x: position[0].toDouble(),
+              y: position[1].toDouble()
+          ),
+        ));
+      }
+    });
+
+    // Update the position tracker with new beacon data
+    positionTracker.updateBeacons(updatedBeacons);
+    positionTracker.updateCalibration(metersToGridFactor);
+
+    // Add debug logging
+    if (updatedBeacons.isNotEmpty) {
+      debugPrint("🔍 Current beacons: ${updatedBeacons.map((b) => '${b.id}: (${b.position?.x}, ${b.position?.y})').join(', ')}");
+    }
   }
 
   // ---------------- BLE Scanning ----------------
@@ -117,6 +229,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             setState(() {
               scannedDevices[beaconId] = device.rssi;
             });
+            _updateBeaconList(); // Update beacons whenever we get new RSSI values
           }
         }
       }
@@ -275,30 +388,54 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   void _showTaskDialog(Map<String, dynamic> task) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (BuildContext dialogContext) => AlertDialog(
         title: Text(task["name"]),
         content: Text("If you go to ${task["name"]}, you win ${task["points"]} points!"),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.of(dialogContext).pop(); // just close the dialog
             },
             child: const Text("Exit"),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // Close the dialog first.
-              // Wait until the current frame finishes (ensuring the dialog is fully dismissed),
-              // then navigate:
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _navigateToTask(task);
-              });
+              Navigator.of(dialogContext).pop(); // close the dialog
+              _navigateToTask(task);             // immediately call your navigation
             },
             child: const Text("Go Now"),
           ),
         ],
       ),
     );
+  }
+
+  // ---------------- Request Path from Backend ----------------
+  Future<void> requestPath(String boothName, List<int> start) async {
+    debugPrint("🔍 Requesting path to $boothName");
+    try {
+      final response = await http.post(
+        Uri.parse('https://inmaps.onrender.com/path'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "from_": start,
+          "to": boothName
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        currentPath = List<List<dynamic>>.from(decoded["path"]);
+        debugPrint("✅ Path received with ${currentPath.length} points");
+      } else {
+        debugPrint("❌ Non-200 status: ${response.statusCode}");
+        debugPrint("Response body: ${response.body}");
+        throw Exception("Failed to get path");
+      }
+    } catch (e) {
+      debugPrint("❌ Path request error: $e");
+      throw e;
+    }
   }
 
   // ---------------- Navigate to Map Screen for the Selected Task ----------------
@@ -312,7 +449,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (!isMapDataLoaded) {
       debugPrint("❌ Map data not loaded yet");
       _showErrorDialog("Please wait while map data is loading...");
-      // Try to load map data again
       await _fetchMapData();
       if (!isMapDataLoaded) {
         debugPrint("❌ Still couldn't load map data");
@@ -320,159 +456,80 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       }
     }
 
+    // Check if we have a valid location
     if (userLocation.isEmpty) {
-      debugPrint("❌ Cannot navigate: userLocation is empty");
-      _showErrorDialog("Cannot navigate: Location not available. Please wait for location detection.");
+      debugPrint("❌ No valid location yet");
+      _showErrorDialog("Please wait while we detect your location...");
       return;
     }
 
-    final parts = userLocation.split(",");
-    if (parts.length != 2) {
-      debugPrint("❌ Invalid location format: $userLocation");
-      _showErrorDialog("Invalid location format. Please try again.");
+    // 1) Convert to grid coords & capture start
+    var parts = userLocation.split(",");
+    if (parts.length != 2) parts = ["0","0"];
+    final userX = double.tryParse(parts[0].trim()) ?? 0.0;
+    final userY = double.tryParse(parts[1].trim()) ?? 0.0;
+    const double cellSize = 40.0;
+    final int gridX = (userX / cellSize).floor();
+    final int gridY = (userY / cellSize).floor();
+    final start = [gridX, gridY];
+
+    // Check if we have a valid grid position
+    if (gridX == 0 && gridY == 0) {
+      debugPrint("❌ Invalid grid position: $start");
+      _showErrorDialog("Please wait while we get a better location fix...");
       return;
     }
 
-    final userX = double.tryParse(parts[0].trim());
-    final userY = double.tryParse(parts[1].trim());
-    
-    if (userX == null || userY == null) {
-      debugPrint("❌ Invalid coordinates: $userLocation");
-      _showErrorDialog("Invalid coordinates. Please try again.");
-      return;
-    }
-
-    // Check if we're at origin (0,0) which might indicate no valid location
-    if (userX == 0 && userY == 0) {
-      debugPrint("❌ Location is at origin (0,0). Waiting for valid location...");
-      _showErrorDialog("Waiting for valid location detection. Please make sure you're near a beacon.");
-      return;
-    }
-
-    // Convert to server coordinate system (multiply by cellSize)
-    final serverX = (userX * 40.0).round();
-    final serverY = (userY * 40.0).round();
-    debugPrint("📍 Current user location: $userLocation");
-    debugPrint("🎯 Server coordinates: [$serverX, $serverY]");
-    
+    // 2) Get heading
     final heading = await FlutterCompass.events!.first;
-    final headingDegrees = heading.heading ?? 0.0;
-    debugPrint("🧭 Current heading: $headingDegrees degrees");
+    final double headingDegrees = heading.heading ?? 0.0;
+    debugPrint("🧭 Current heading: $headingDegrees°");
 
-    // Get walkable areas from elements
-    List<Map<String, dynamic>> walkableAreas = [];
-    int zoneCount = 0;
-    for (var el in elements) {
-      if (el["type"].toString().toLowerCase() == "zone") {
-        zoneCount++;
-        walkableAreas.add({
-          "start": {
-            "x": (el["start"]["x"] as num).toDouble(),
-            "y": (el["start"]["y"] as num).toDouble()
-          },
-          "end": {
-            "x": (el["end"]["x"] as num).toDouble(),
-            "y": (el["end"]["y"] as num).toDouble()
-          }
-        });
-      }
-    }
-    debugPrint("🚶‍♂️ Found $zoneCount walkable zones");
+    try {
+      // 3) Get path from backend
+      await requestPath(task["name"], start);
 
-    // Check if the point is in a walkable zone
-    bool isInWalkableZone = false;
-    final userPoint = Offset(serverX.toDouble(), serverY.toDouble());
-    for (var area in walkableAreas) {
-      final rect = Rect.fromPoints(
-        Offset(area["start"]["x"], area["start"]["y"]),
-        Offset(area["end"]["x"], area["end"]["y"]),
-      );
-      if (rect.contains(userPoint)) {
-        isInWalkableZone = true;
-        break;
-      }
-    }
+      // 4) Prepend our start cell to the returned route
+      final displayPath = [
+        [gridX, gridY],
+        ...currentPath
+      ];
 
-    // Always navigate to map screen, but with empty path if not in walkable zone
-    List<List<dynamic>> displayPath = [];
-    
-    if (isInWalkableZone) {
-      try {
-        debugPrint("📤 Sending path request to server with walkable areas...");
-        final requestBody = {
-          "from_": [serverX, serverY],
-          "to": task["name"],
-          "constraints": {
-            "walkable_areas": walkableAreas,
-            "grid_size": 40.0,
-            "avoid_obstacles": true
-          }
-        };
-        debugPrint("Request body: ${jsonEncode(requestBody)}");
-        
-        final response = await http.post(
-          Uri.parse('https://inmaps.onrender.com/path'),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(requestBody),
-        );
-        debugPrint("📥 Response from /path: ${response.statusCode}");
-        debugPrint("Response body: ${response.body}");
-        
-        if (response.statusCode == 200) {
-          final decoded = jsonDecode(response.body);
-          final path = decoded["path"];
-          if (path != null && path is List && path.isNotEmpty) {
-            // Convert server coordinates back to grid coordinates for display
-            displayPath = [
-              [userX.round(), userY.round()],
-              ...List<List<dynamic>>.from(path).map((point) => 
-                [(point[0] as num) ~/ 40, (point[1] as num) ~/ 40]
-              ).toList()
-            ];
-          }
-        }
-      } catch (e, stackTrace) {
-        debugPrint("❌ Error getting path: $e");
-        debugPrint("Stack trace: $stackTrace");
-      }
-    }
-
-    debugPrint("🚀 Attempting to navigate to MapScreen...");
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MapScreen(
-          path: displayPath,
-          startLocation: [userX.round(), userY.round()],
-          headingDegrees: headingDegrees,
-          initialPosition: Vector2D(
-            userX * 40.0,
-            userY * 40.0,
+      // 5) Navigate with that complete path
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MapScreen(
+            path: displayPath,
+            startLocation: start,
+            headingDegrees: headingDegrees,
+            initialPosition: Vector2D(gridX * cellSize, gridY * cellSize),
+            selectedBoothName: task["name"],
+            onArrival: (arrived) {
+              debugPrint("🏁 onArrival: $arrived");
+              if (arrived && !completedBoothNames.contains(task["name"])) {
+                setState(() {
+                  task["completed"] = true;
+                  completedBoothNames.add(task["name"]);
+                  totalPoints += (task["points"] as int);
+                  globalTotalPoints = totalPoints;
+                  rewardText = "+${task["points"]} points!";
+                  showReward = true;
+                });
+                _animationController.forward(from: 0);
+                Future.delayed(const Duration(milliseconds: 1500), () {
+                  if (mounted) setState(() => showReward = false);
+                });
+              }
+            },
           ),
-          selectedBoothName: task["name"],
-          onArrival: (arrived) {
-            debugPrint("🏁 onArrival callback triggered with arrived=$arrived");
-            if (arrived && !completedBoothNames.contains(task["name"])) {
-              setState(() {
-                task["completed"] = true;
-                completedBoothNames.add(task["name"]);
-                totalPoints += (task["points"] as int);
-                globalTotalPoints = totalPoints;
-                rewardText = "+${task["points"]} points!";
-                showReward = true;
-              });
-              _animationController.forward(from: 0);
-              Future.delayed(const Duration(milliseconds: 1500), () {
-                if (mounted) {
-                  setState(() => showReward = false);
-                }
-              });
-            }
-          },
         ),
-      ),
-    );
-    debugPrint("✅ Navigator.push() completed");
+      );
+      debugPrint("✅ Navigator.push() done");
+    } catch (e, st) {
+      debugPrint("❌ Navigation error: $e\n$st");
+      _showErrorDialog("An error occurred. Please try again.");
+    }
   }
 
   void _showErrorDialog(String message) {
@@ -576,7 +633,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       child: InkWell(
-                        onTap: t["completed"] ? null : () => _showTaskDialog(t),
+                        onTap: () => _showTaskDialog(t),
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.all(16),

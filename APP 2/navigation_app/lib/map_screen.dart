@@ -807,7 +807,7 @@ class MapPainter extends CustomPainter {
       final end = el["end"];
       final rawName = el["name"].toString();
       final name = (type == "other")
-          ? rawName                                 
+          ? rawName
           : rawName.substring(0, min(3, rawName.length));
       final center = Offset(
           (start["x"].toDouble() + end["x"].toDouble()) / 2,
