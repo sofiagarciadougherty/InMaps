@@ -50,6 +50,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app uses Bluetooth to discover nearby beacons for indoor navigation.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>This app uses Bluetooth to connect to beacons and indoor navigation.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
