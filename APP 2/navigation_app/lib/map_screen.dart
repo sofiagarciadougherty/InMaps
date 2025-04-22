@@ -167,13 +167,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           currentPath = List<List<dynamic>>.from(data['path']);
         });
       } else if (resp.statusCode == 404) {
-        final errorData = jsonDecode(resp.body);
-        if (errorData["error"]?.toString().toLowerCase().contains("floor") ?? false) {
-          _showFloorNotification();
-        }
+        print("❌ Path not found - showing floor notification");
+        _showFloorNotification();
       }
     } catch (e) {
       print('❌ Path fetch failed: $e');
+      _showFloorNotification(); // Also show notification on error
     }
   }
 
@@ -345,6 +344,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   void _showFloorNotification() {
+    print("🚨 Showing floor notification");
     _removeArrivalOverlay();
     _arrivalOverlay = OverlayEntry(
       builder: (ctx) => Positioned(
